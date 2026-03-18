@@ -43,7 +43,9 @@ class OverlayService : Service() {
     private var borderView: View? = null
     private var live2DManager: LAppLive2DManager? = null
     private var live2DRenderer: Live2DRenderer? = null
-    private var overlaySizePx = 0
+    private var overlayWidth = 0
+    private var overlayHeight = 0
+    private var modelAspect = 1.0f
     private var overlayParams: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
     private val hideBorderRunnable = Runnable { borderView?.animate()?.alpha(0f)?.setDuration(300)?.start() }
@@ -106,7 +108,8 @@ class OverlayService : Service() {
 
     private fun addOverlayView() {
         val dp = resources.displayMetrics.density
-        overlaySizePx = (300 * dp).toInt()
+        overlayWidth = (300 * dp).toInt()
+        overlayHeight = (300 * dp).toInt()
 
         val textureManager = LAppTextureManager(this)
         live2DManager = LAppLive2DManager(textureManager)
@@ -116,6 +119,23 @@ class OverlayService : Service() {
             "Alice/",
             "Alice Cross Tensor.model3.json"
         )
+
+        // Resize overlay to match model aspect ratio after load
+        live2DRenderer?.setOnModelLoadedListener { canvasWidth, canvasHeight ->
+            modelAspect = canvasWidth / canvasHeight
+            handler.post {
+                val params = overlayParams ?: return@post
+                // Keep current width, adjust height to match model
+                overlayHeight = (overlayWidth / modelAspect).toInt()
+                params.width = overlayWidth
+                params.height = overlayHeight
+                try {
+                    windowManager.updateViewLayout(containerView, params)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to resize overlay", e)
+                }
+            }
+        }
 
         applyFilterSettings()
 
@@ -149,8 +169,8 @@ class OverlayService : Service() {
         ))
 
         overlayParams = WindowManager.LayoutParams(
-            overlaySizePx,
-            overlaySizePx,
+            overlayWidth,
+            overlayHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -195,8 +215,8 @@ class OverlayService : Service() {
 
     private fun setupTouchHandlers(params: WindowManager.LayoutParams) {
         val dp = resources.displayMetrics.density
-        val minSize = (MIN_SIZE_DP * dp).toInt()
-        val maxSize = (MAX_SIZE_DP * dp).toInt()
+        val minWidth = (MIN_SIZE_DP * dp).toInt()
+        val maxWidth = (MAX_SIZE_DP * dp).toInt()
 
         var initialX = 0
         var initialY = 0
@@ -214,17 +234,18 @@ class OverlayService : Service() {
                 }
 
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    overlaySizePx = (overlaySizePx * detector.scaleFactor).toInt()
-                        .coerceIn(minSize, maxSize)
+                    overlayWidth = (overlayWidth * detector.scaleFactor).toInt()
+                        .coerceIn(minWidth, maxWidth)
+                    overlayHeight = (overlayWidth / modelAspect).toInt()
 
                     val oldCenterX = params.x + params.width / 2
                     val oldCenterY = params.y + params.height / 2
 
-                    params.width = overlaySizePx
-                    params.height = overlaySizePx
+                    params.width = overlayWidth
+                    params.height = overlayHeight
 
-                    params.x = oldCenterX - overlaySizePx / 2
-                    params.y = oldCenterY - overlaySizePx / 2
+                    params.x = oldCenterX - overlayWidth / 2
+                    params.y = oldCenterY - overlayHeight / 2
 
                     windowManager.updateViewLayout(containerView, params)
                     return true

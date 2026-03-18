@@ -28,10 +28,21 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
 
     private final PostProcessFilter postProcess = new PostProcessFilter();
 
+    private OnModelLoadedListener modelLoadedListener;
+    private boolean notifiedListener = false;
+
+    public interface OnModelLoadedListener {
+        void onModelLoaded(float canvasWidth, float canvasHeight);
+    }
+
     public Live2DRenderer(LAppLive2DManager manager, String modelDir, String modelJson) {
         this.manager = manager;
         this.modelDir = modelDir;
         this.modelJson = modelJson;
+    }
+
+    public void setOnModelLoadedListener(OnModelLoadedListener listener) {
+        this.modelLoadedListener = listener;
     }
 
     public PostProcessFilter getPostProcess() {
@@ -64,6 +75,15 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         if (!modelLoaded) {
             manager.loadModel(modelDir, modelJson);
             modelLoaded = true;
+
+            if (modelLoadedListener != null && !notifiedListener) {
+                notifiedListener = true;
+                float cw = manager.getCanvasWidth();
+                float ch = manager.getCanvasHeight();
+                if (cw > 0 && ch > 0) {
+                    modelLoadedListener.onModelLoaded(cw, ch);
+                }
+            }
         }
     }
 

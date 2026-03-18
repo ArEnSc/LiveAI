@@ -81,6 +81,16 @@ public class LAppLive2DManager {
         model.draw(projection);
     }
 
+    public float getCanvasWidth() {
+        if (model == null || model.getModel() == null) return 0;
+        return model.getModel().getCanvasWidth();
+    }
+
+    public float getCanvasHeight() {
+        if (model == null || model.getModel() == null) return 0;
+        return model.getModel().getCanvasHeight();
+    }
+
     public void onDrag(float x, float y) {
         if (model != null) {
             model.setDragging(x, y);
