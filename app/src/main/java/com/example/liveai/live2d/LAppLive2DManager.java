@@ -62,9 +62,9 @@ public class LAppLive2DManager {
 
         if (fitToScreen) {
             // Aspect-fit: scale model to fit within screen without distortion
-            float screenAspect = (float) windowWidth / (float) windowHeight;
             model.getModelMatrix().setWidth(2.0f);
             projection.scale(1.0f, (float) windowWidth / (float) windowHeight);
+            projection.scaleRelative(modelScale, modelScale);
         } else {
             if (model.getModel().getCanvasWidth() > 1.0f && windowWidth < windowHeight) {
                 model.getModelMatrix().setWidth(2.0f);

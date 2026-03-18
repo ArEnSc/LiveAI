@@ -149,6 +149,15 @@ class Live2DWallpaperService : WallpaperService() {
             live2DManager = LAppLive2DManager(textureManager)
             live2DManager?.setFitToScreen(true)
 
+            // Load saved position/scale settings
+            val prefs = getSharedPreferences(WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE)
+            val scale = prefs.getFloat(WallpaperSetupActivity.KEY_SCALE, 1.0f)
+            val offX = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_X, 0.0f)
+            val offY = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_Y, 0.0f)
+            live2DManager?.setModelScale(scale)
+            live2DManager?.setModelOffset(offX, offY)
+            Log.d(TAG, "Loaded settings: scale=$scale offsetX=$offX offsetY=$offY")
+
             LAppPal.updateTime()
 
             loadBackgroundWallpaper()

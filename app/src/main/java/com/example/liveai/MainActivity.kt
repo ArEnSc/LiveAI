@@ -1,7 +1,5 @@
 package com.example.liveai
 
-import android.app.WallpaperManager
-import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -70,14 +68,8 @@ class MainActivity : AppCompatActivity() {
 
         val btnSetWallpaper = findViewById<Button>(R.id.btnSetWallpaper)
         btnSetWallpaper.setOnClickListener {
-            Log.d(TAG, "Set wallpaper clicked")
-            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
-                putExtra(
-                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                    ComponentName(this@MainActivity, Live2DWallpaperService::class.java)
-                )
-            }
-            startActivity(intent)
+            Log.d(TAG, "Set wallpaper clicked — opening setup")
+            startActivity(Intent(this, WallpaperSetupActivity::class.java))
         }
     }
 

@@ -35,6 +35,11 @@
                 android:value="overlay_display" />
         </service>
 
+        <activity
+            android:name=".WallpaperSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.LiveAI" />
+
         <service
             android:name=".Live2DWallpaperService"
             android:exported="true"
