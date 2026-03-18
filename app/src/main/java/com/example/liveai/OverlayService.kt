@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
@@ -30,8 +31,30 @@ class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
+    private var live2DRenderer: Live2DRenderer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Reload filter settings when service is re-started
+        val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        live2DRenderer?.postProcess?.isSaturationEnabled =
+            prefs.getBoolean(FilterSettings.KEY_SATURATION, false)
+        live2DRenderer?.postProcess?.isOutlineEnabled =
+            prefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
+        live2DRenderer?.postProcess?.saturationAmount =
+            prefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
+        live2DRenderer?.postProcess?.outlineThickness =
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
+        live2DRenderer?.postProcess?.setOutlineColor(
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
+            1.0f
+        )
+        Log.d(TAG, "Filters updated: sat=${live2DRenderer?.postProcess?.isSaturationEnabled} outline=${live2DRenderer?.postProcess?.isOutlineEnabled}")
+        return START_STICKY
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -87,10 +110,27 @@ class OverlayService : Service() {
         val textureManager = LAppTextureManager(this)
         live2DManager = LAppLive2DManager(textureManager)
 
-        val renderer = Live2DRenderer(
+        live2DRenderer = Live2DRenderer(
             live2DManager!!,
             "Alice/",
             "Alice Cross Tensor.model3.json"
+        )
+
+        // Apply filter settings
+        val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        live2DRenderer?.postProcess?.isSaturationEnabled =
+            prefs.getBoolean(FilterSettings.KEY_SATURATION, false)
+        live2DRenderer?.postProcess?.isOutlineEnabled =
+            prefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
+        live2DRenderer?.postProcess?.saturationAmount =
+            prefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
+        live2DRenderer?.postProcess?.outlineThickness =
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
+        live2DRenderer?.postProcess?.setOutlineColor(
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
+            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
+            1.0f
         )
 
         glSurfaceView = GLSurfaceView(this).apply {
@@ -98,7 +138,7 @@ class OverlayService : Service() {
             setEGLConfigChooser(8, 8, 8, 8, 16, 0)
             holder.setFormat(PixelFormat.TRANSLUCENT)
             setZOrderOnTop(true)
-            setRenderer(renderer)
+            setRenderer(live2DRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 

@@ -5,21 +5,30 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.Switch
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.LAppTextureManager
+import com.example.liveai.live2d.PostProcessFilter
 import com.live2d.sdk.cubism.framework.CubismFramework
 import java.io.File
 import java.nio.ByteBuffer
@@ -39,6 +48,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
+    private val postProcess = PostProcessFilter()
 
     private var modelScale = 1.0f
     private var offsetX = 0.0f
@@ -52,6 +62,18 @@ class WallpaperSetupActivity : AppCompatActivity() {
         modelScale = prefs.getFloat(KEY_SCALE, 1.0f)
         offsetX = prefs.getFloat(KEY_OFFSET_X, 0.0f)
         offsetY = prefs.getFloat(KEY_OFFSET_Y, 0.0f)
+
+        val filterPrefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        postProcess.isSaturationEnabled = filterPrefs.getBoolean(FilterSettings.KEY_SATURATION, false)
+        postProcess.isOutlineEnabled = filterPrefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
+        postProcess.saturationAmount = filterPrefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
+        postProcess.outlineThickness = filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
+        postProcess.setOutlineColor(
+            filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
+            filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
+            filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
+            1.0f
+        )
 
         val root = FrameLayout(this)
 
@@ -85,18 +107,161 @@ class WallpaperSetupActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        val btnApply = Button(this).apply {
-            text = "Apply Wallpaper"
-            setOnClickListener { applyWallpaper() }
-        }
-        val btnParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
+        // Controls panel
+        val controlsPanel = buildControlsPanel()
+        val panelParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-            bottomMargin = (48 * resources.displayMetrics.density).toInt()
+            gravity = Gravity.BOTTOM
         }
-        root.addView(btnApply, btnParams)
+        root.addView(controlsPanel, panelParams)
+
+        setContentView(root)
+        setupTouchHandling()
+    }
+
+    private fun buildControlsPanel(): LinearLayout {
+        val dp = resources.displayMetrics.density
+        val pad = (12 * dp).toInt()
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(200, 0, 0, 0))
+            setPadding(pad, pad, pad, (pad * 2))
+        }
+
+        // Saturation row
+        val satRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val satSwitch = Switch(this).apply {
+            text = "Saturation"
+            setTextColor(Color.WHITE)
+            isChecked = postProcess.isSaturationEnabled
+            setOnCheckedChangeListener { _, checked ->
+                postProcess.isSaturationEnabled = checked
+            }
+        }
+        satRow.addView(satSwitch, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val satLabel = TextView(this).apply {
+            text = "%.1f".format(postProcess.saturationAmount)
+            setTextColor(Color.WHITE)
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        }
+
+        val satSlider = SeekBar(this).apply {
+            max = 300
+            progress = (postProcess.saturationAmount * 100).toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val value = progress / 100f
+                    postProcess.saturationAmount = value
+                    satLabel.text = "%.1f".format(value)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        satRow.addView(satSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+        satRow.addView(satLabel)
+        panel.addView(satRow)
+
+        // Outline row
+        val outRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val outSwitch = Switch(this).apply {
+            text = "Outline"
+            setTextColor(Color.WHITE)
+            isChecked = postProcess.isOutlineEnabled
+            setOnCheckedChangeListener { _, checked ->
+                postProcess.isOutlineEnabled = checked
+            }
+        }
+        outRow.addView(outSwitch, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val outLabel = TextView(this).apply {
+            text = "%d".format(postProcess.outlineThickness.toInt())
+            setTextColor(Color.WHITE)
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        }
+
+        val outSlider = SeekBar(this).apply {
+            max = 100
+            progress = postProcess.outlineThickness.toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val value = progress.toFloat()
+                    postProcess.outlineThickness = value
+                    outLabel.text = "%d".format(progress)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        outRow.addView(outSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+        outRow.addView(outLabel)
+        panel.addView(outRow)
+
+        // Outline color row
+        val colorRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, (4 * dp).toInt(), 0, 0)
+        }
+
+        val colorLabel = TextView(this).apply {
+            text = "Outline Color:"
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, (8 * dp).toInt(), 0)
+        }
+        colorRow.addView(colorLabel)
+
+        data class ColorPreset(val name: String, val color: Int, val r: Float, val g: Float, val b: Float)
+        val presets = listOf(
+            ColorPreset("Black", Color.BLACK, 0f, 0f, 0f),
+            ColorPreset("White", Color.WHITE, 1f, 1f, 1f),
+            ColorPreset("Red", Color.RED, 1f, 0f, 0f),
+            ColorPreset("Blue", Color.BLUE, 0f, 0f, 1f),
+            ColorPreset("Green", Color.rgb(0, 200, 0), 0f, 0.78f, 0f),
+            ColorPreset("Gold", Color.rgb(255, 215, 0), 1f, 0.84f, 0f),
+            ColorPreset("Pink", Color.rgb(255, 105, 180), 1f, 0.41f, 0.71f),
+            ColorPreset("Cyan", Color.CYAN, 0f, 1f, 1f)
+        )
+
+        val btnSize = (32 * dp).toInt()
+        val btnMargin = (4 * dp).toInt()
+
+        for (preset in presets) {
+            val colorBtn = Button(this).apply {
+                val shape = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(preset.color)
+                    setStroke((2 * dp).toInt(), Color.WHITE)
+                }
+                background = shape
+                setOnClickListener {
+                    postProcess.setOutlineColor(preset.r, preset.g, preset.b, 1.0f)
+                }
+            }
+            val btnParams2 = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+                setMargins(btnMargin, 0, btnMargin, 0)
+            }
+            colorRow.addView(colorBtn, btnParams2)
+        }
+
+        panel.addView(colorRow)
+
+        // Buttons row
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, (8 * dp).toInt(), 0, 0)
+        }
 
         val btnReset = Button(this).apply {
             text = "Reset"
@@ -106,20 +271,26 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 offsetY = 0.0f
                 live2DManager?.setModelScale(modelScale)
                 live2DManager?.setModelOffset(offsetX, offsetY)
+                postProcess.isSaturationEnabled = false
+                postProcess.isOutlineEnabled = false
+                postProcess.saturationAmount = 1.5f
+                postProcess.outlineThickness = 2f
+                satSwitch.isChecked = false
+                outSwitch.isChecked = false
+                satSlider.progress = 150
+                outSlider.progress = 2
             }
         }
-        val resetParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
-            bottomMargin = (48 * resources.displayMetrics.density).toInt()
-            leftMargin = (16 * resources.displayMetrics.density).toInt()
-        }
-        root.addView(btnReset, resetParams)
+        btnRow.addView(btnReset)
 
-        setContentView(root)
-        setupTouchHandling()
+        val btnApply = Button(this).apply {
+            text = "Apply Wallpaper"
+            setOnClickListener { applyWallpaper() }
+        }
+        btnRow.addView(btnApply)
+
+        panel.addView(btnRow)
+        return panel
     }
 
     private fun setupTouchHandling() {
@@ -167,7 +338,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
                             val dy = event.getY(pointerIndex) - lastTouchY
 
                             val view = glSurfaceView ?: return@setOnTouchListener true
-                            // Convert pixel delta to GL coordinates (-1..1)
                             offsetX += (dx / view.width) * 2.0f
                             offsetY -= (dy / view.height) * 2.0f
                             live2DManager?.setModelOffset(offsetX, offsetY)
@@ -178,9 +348,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                     }
                     true
                 }
-                MotionEvent.ACTION_POINTER_DOWN -> {
-                    true
-                }
+                MotionEvent.ACTION_POINTER_DOWN -> true
                 MotionEvent.ACTION_POINTER_UP -> {
                     val pointerIndex = event.actionIndex
                     val pointerId = event.getPointerId(pointerIndex)
@@ -202,14 +370,26 @@ class WallpaperSetupActivity : AppCompatActivity() {
     }
 
     private fun applyWallpaper() {
-        // Save settings
+        // Save position/scale settings
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
             .putFloat(KEY_SCALE, modelScale)
             .putFloat(KEY_OFFSET_X, offsetX)
             .putFloat(KEY_OFFSET_Y, offsetY)
             .apply()
 
-        Log.d(TAG, "Settings saved: scale=$modelScale offsetX=$offsetX offsetY=$offsetY")
+        // Save filter settings
+        val outColor = postProcess.outlineColor
+        getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(FilterSettings.KEY_SATURATION, postProcess.isSaturationEnabled)
+            .putBoolean(FilterSettings.KEY_OUTLINE, postProcess.isOutlineEnabled)
+            .putFloat(FilterSettings.KEY_SATURATION_AMOUNT, postProcess.saturationAmount)
+            .putFloat(FilterSettings.KEY_OUTLINE_THICKNESS, postProcess.outlineThickness)
+            .putFloat(FilterSettings.KEY_OUTLINE_COLOR_R, outColor[0])
+            .putFloat(FilterSettings.KEY_OUTLINE_COLOR_G, outColor[1])
+            .putFloat(FilterSettings.KEY_OUTLINE_COLOR_B, outColor[2])
+            .apply()
+
+        Log.d(TAG, "Settings saved: scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
 
         // Launch wallpaper picker
         val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
@@ -254,6 +434,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
             CubismFramework.initialize()
+            postProcess.init()
 
             loadBackground()
             initBgShader()
@@ -262,6 +443,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
             GLES20.glViewport(0, 0, width, height)
             live2DManager?.setWindowSize(width, height)
+            postProcess.resize(width, height)
 
             if (!modelLoaded) {
                 live2DManager?.loadModel("Alice/", "Alice Cross Tensor.model3.json")
@@ -276,12 +458,23 @@ class WallpaperSetupActivity : AppCompatActivity() {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
             GLES20.glClearDepthf(1.0f)
 
+            // Draw background
             GLES20.glDisable(GLES20.GL_BLEND)
             drawBackground()
 
-            GLES20.glEnable(GLES20.GL_BLEND)
-            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-            live2DManager?.onUpdate()
+            // Draw model with optional post-processing
+            val useFilters = postProcess.isAnyFilterEnabled
+            if (useFilters) {
+                postProcess.beginCapture()
+                GLES20.glEnable(GLES20.GL_BLEND)
+                GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                live2DManager?.onUpdate()
+                postProcess.endCaptureAndApply()
+            } else {
+                GLES20.glEnable(GLES20.GL_BLEND)
+                GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                live2DManager?.onUpdate()
+            }
         }
 
         private fun loadBackground() {

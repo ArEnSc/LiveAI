@@ -17,6 +17,7 @@ import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.LAppTextureManager
+import com.example.liveai.live2d.PostProcessFilter
 import com.live2d.sdk.cubism.framework.CubismFramework
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -40,6 +41,7 @@ class Live2DWallpaperService : WallpaperService() {
         private var eglConfig: EGLConfig? = null
 
         private var live2DManager: LAppLive2DManager? = null
+        private val postProcess = PostProcessFilter()
         private var cubismInitialized = false
         private var modelLoaded = false
         private var surfaceWidth = 0
@@ -84,6 +86,7 @@ class Live2DWallpaperService : WallpaperService() {
             makeCurrent()
             GLES20.glViewport(0, 0, width, height)
             live2DManager?.setWindowSize(width, height)
+            postProcess.resize(width, height)
 
             if (!modelLoaded) {
                 live2DManager?.loadModel("Alice/", "Alice Cross Tensor.model3.json")
@@ -158,8 +161,22 @@ class Live2DWallpaperService : WallpaperService() {
             live2DManager?.setModelOffset(offX, offY)
             Log.d(TAG, "Loaded settings: scale=$scale offsetX=$offX offsetY=$offY")
 
+            // Load filter settings
+            val filterPrefs = getSharedPreferences(FilterSettings.PREFS_NAME, MODE_PRIVATE)
+            postProcess.isSaturationEnabled = filterPrefs.getBoolean(FilterSettings.KEY_SATURATION, false)
+            postProcess.isOutlineEnabled = filterPrefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
+            postProcess.saturationAmount = filterPrefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
+            postProcess.outlineThickness = filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
+            postProcess.setOutlineColor(
+                filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
+                filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
+                filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
+                1.0f
+            )
+
             LAppPal.updateTime()
 
+            postProcess.init()
             loadBackgroundWallpaper()
             initBgShader()
         }
@@ -281,10 +298,19 @@ class Live2DWallpaperService : WallpaperService() {
             GLES20.glDisable(GLES20.GL_BLEND)
             drawBackground()
 
-            // Draw Live2D model on top with blending
-            GLES20.glEnable(GLES20.GL_BLEND)
-            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-            live2DManager?.onUpdate()
+            // Draw Live2D model on top with optional post-processing
+            val useFilters = postProcess.isAnyFilterEnabled
+            if (useFilters) {
+                postProcess.beginCapture()
+                GLES20.glEnable(GLES20.GL_BLEND)
+                GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                live2DManager?.onUpdate()
+                postProcess.endCaptureAndApply()
+            } else {
+                GLES20.glEnable(GLES20.GL_BLEND)
+                GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                live2DManager?.onUpdate()
+            }
 
             EGL14.eglSwapBuffers(eglDisplay, eglSurface)
         }

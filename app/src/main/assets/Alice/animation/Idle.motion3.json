@@ -188,10 +188,10 @@
 			"Id": "ParamEyeLOpen",
 			"Segments": [
 				0,
-				0,
+				1,
 				0,
 				3.333,
-				0
+				1
 			]
 		},
 		{
@@ -199,10 +199,10 @@
 			"Id": "ParamEyeROpen",
 			"Segments": [
 				0,
-				0,
+				1,
 				0,
 				3.333,
-				0
+				1
 			]
 		}
 	]

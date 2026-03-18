@@ -26,10 +26,16 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     private int debugPositionHandle = 0;
     private int debugColorHandle = 0;
 
+    private final PostProcessFilter postProcess = new PostProcessFilter();
+
     public Live2DRenderer(LAppLive2DManager manager, String modelDir, String modelJson) {
         this.manager = manager;
         this.modelDir = modelDir;
         this.modelJson = modelJson;
+    }
+
+    public PostProcessFilter getPostProcess() {
+        return postProcess;
     }
 
     @Override
@@ -42,6 +48,8 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
 
         CubismFramework.initialize();
 
+        postProcess.init();
+
         if (LAppDefine.DEBUG_DRAW_BOUNDS) {
             initDebugShader();
         }
@@ -51,6 +59,7 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 unused, int width, int height) {
         GLES20.glViewport(0, 0, width, height);
         manager.setWindowSize(width, height);
+        postProcess.resize(width, height);
 
         if (!modelLoaded) {
             manager.loadModel(modelDir, modelJson);
@@ -62,14 +71,27 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     public void onDrawFrame(GL10 unused) {
         LAppPal.updateTime();
 
-        // Transparent background for overlay
-        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glClearDepthf(1.0f);
+        boolean usePostProcess = postProcess.isAnyFilterEnabled();
 
-        GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        if (usePostProcess) {
+            // Render model to FBO
+            postProcess.beginCapture();
+            GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            manager.onUpdate();
 
-        manager.onUpdate();
+            // Apply filters and draw to screen
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glClearDepthf(1.0f);
+            postProcess.endCaptureAndApply();
+        } else {
+            // Direct render (no filters)
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glClearDepthf(1.0f);
+            GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            manager.onUpdate();
+        }
 
         if (LAppDefine.DEBUG_DRAW_BOUNDS) {
             drawDebugBounds();
