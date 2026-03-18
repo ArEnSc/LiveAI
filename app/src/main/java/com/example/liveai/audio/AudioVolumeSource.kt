@@ -27,6 +27,9 @@ class AudioVolumeSource(private val context: Context) {
     var volume: Float = 0f
         private set
 
+    /** Set to true to use fake oscillating volume instead of mic input */
+    var testMode: Boolean = false
+
     private var audioRecord: AudioRecord? = null
     private var recordingThread: Thread? = null
     @Volatile
@@ -34,6 +37,25 @@ class AudioVolumeSource(private val context: Context) {
 
     fun start() {
         if (isRunning) return
+
+        if (testMode) {
+            isRunning = true
+            recordingThread = Thread({
+                var phase = 0.0
+                while (isRunning) {
+                    phase += 0.05
+                    // Oscillate between 0.2 and 0.8 with some noise
+                    volume = (0.5f + 0.3f * Math.sin(phase).toFloat() +
+                        0.1f * Math.random().toFloat()).coerceIn(0f, 1f)
+                    Thread.sleep(50)
+                }
+            }, "AudioVolumeSource-Test").apply {
+                isDaemon = true
+                start()
+            }
+            Log.d(TAG, "Test mode started — fake volume")
+            return
+        }
 
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED

@@ -120,6 +120,7 @@ class OverlayService : Service() {
 
         // Start mic and audio-driven motion
         audioVolumeSource = AudioVolumeSource(this)
+        audioVolumeSource?.testMode = true  // TODO: remove after testing
         audioVolumeSource?.start()
 
         val textureManager = LAppTextureManager(this)
