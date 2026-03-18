@@ -6,14 +6,19 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
@@ -27,14 +32,21 @@ class OverlayService : Service() {
         private const val TAG = "LiveAI"
         private const val CHANNEL_ID = "overlay_channel"
         private const val NOTIFICATION_ID = 1
+        private const val MIN_SIZE_DP = 100
+        private const val MAX_SIZE_DP = 800
+        private const val BORDER_FADE_DELAY_MS = 1000L
     }
 
     private lateinit var windowManager: WindowManager
+    private var containerView: FrameLayout? = null
     private var glSurfaceView: GLSurfaceView? = null
+    private var borderView: View? = null
     private var live2DManager: LAppLive2DManager? = null
     private var live2DRenderer: Live2DRenderer? = null
     private var overlaySizePx = 0
     private var overlayParams: WindowManager.LayoutParams? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val hideBorderRunnable = Runnable { borderView?.animate()?.alpha(0f)?.setDuration(300)?.start() }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,7 +105,8 @@ class OverlayService : Service() {
     }
 
     private fun addOverlayView() {
-        overlaySizePx = (300 * resources.displayMetrics.density).toInt()
+        val dp = resources.displayMetrics.density
+        overlaySizePx = (300 * dp).toInt()
 
         val textureManager = LAppTextureManager(this)
         live2DManager = LAppLive2DManager(textureManager)
@@ -115,6 +128,26 @@ class OverlayService : Service() {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
+        // Border view — hidden by default, shown during resize
+        borderView = View(this).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                setStroke((2 * dp).toInt(), Color.argb(200, 100, 200, 255))
+                setColor(Color.TRANSPARENT)
+            }
+            alpha = 0f
+        }
+
+        containerView = FrameLayout(this)
+        containerView!!.addView(glSurfaceView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        containerView!!.addView(borderView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
         overlayParams = WindowManager.LayoutParams(
             overlaySizePx,
             overlaySizePx,
@@ -127,8 +160,8 @@ class OverlayService : Service() {
             y = 300
         }
 
-        setupDragListener(overlayParams!!)
-        windowManager.addView(glSurfaceView, overlayParams)
+        setupTouchHandlers(overlayParams!!)
+        windowManager.addView(containerView, overlayParams)
     }
 
     private fun applyFilterSettings() {
@@ -149,20 +182,34 @@ class OverlayService : Service() {
         )
     }
 
-    private fun setupDragListener(params: WindowManager.LayoutParams) {
+    private fun showBorder() {
+        handler.removeCallbacks(hideBorderRunnable)
+        borderView?.animate()?.cancel()
+        borderView?.alpha = 1f
+    }
+
+    private fun scheduleBorderFade() {
+        handler.removeCallbacks(hideBorderRunnable)
+        handler.postDelayed(hideBorderRunnable, BORDER_FADE_DELAY_MS)
+    }
+
+    private fun setupTouchHandlers(params: WindowManager.LayoutParams) {
+        val dp = resources.displayMetrics.density
+        val minSize = (MIN_SIZE_DP * dp).toInt()
+        val maxSize = (MAX_SIZE_DP * dp).toInt()
+
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
         var isScaling = false
-        val minSize = (100 * resources.displayMetrics.density).toInt()
-        val maxSize = (800 * resources.displayMetrics.density).toInt()
 
         val scaleDetector = ScaleGestureDetector(
             this,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
                     isScaling = true
+                    showBorder()
                     return true
                 }
 
@@ -170,7 +217,6 @@ class OverlayService : Service() {
                     overlaySizePx = (overlaySizePx * detector.scaleFactor).toInt()
                         .coerceIn(minSize, maxSize)
 
-                    // Keep center position stable
                     val oldCenterX = params.x + params.width / 2
                     val oldCenterY = params.y + params.height / 2
 
@@ -180,12 +226,13 @@ class OverlayService : Service() {
                     params.x = oldCenterX - overlaySizePx / 2
                     params.y = oldCenterY - overlaySizePx / 2
 
-                    windowManager.updateViewLayout(glSurfaceView, params)
+                    windowManager.updateViewLayout(containerView, params)
                     return true
                 }
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     isScaling = false
+                    scheduleBorderFade()
                 }
             }
         )
@@ -205,7 +252,7 @@ class OverlayService : Service() {
                     if (!isScaling && event.pointerCount == 1) {
                         params.x = initialX + (event.rawX - initialTouchX).toInt()
                         params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(glSurfaceView, params)
+                        windowManager.updateViewLayout(containerView, params)
                     }
                     true
                 }
@@ -217,8 +264,9 @@ class OverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "OverlayService onDestroy")
-        glSurfaceView?.let {
-            it.onPause()
+        handler.removeCallbacks(hideBorderRunnable)
+        containerView?.let {
+            glSurfaceView?.onPause()
             windowManager.removeView(it)
         }
         live2DManager?.releaseModel()
