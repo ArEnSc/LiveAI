@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.WindowManager
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
@@ -32,26 +33,13 @@ class OverlayService : Service() {
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
     private var live2DRenderer: Live2DRenderer? = null
+    private var overlaySizePx = 0
+    private var overlayParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Reload filter settings when service is re-started
-        val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
-        live2DRenderer?.postProcess?.isSaturationEnabled =
-            prefs.getBoolean(FilterSettings.KEY_SATURATION, false)
-        live2DRenderer?.postProcess?.isOutlineEnabled =
-            prefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
-        live2DRenderer?.postProcess?.saturationAmount =
-            prefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
-        live2DRenderer?.postProcess?.outlineThickness =
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
-        live2DRenderer?.postProcess?.setOutlineColor(
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
-            1.0f
-        )
+        applyFilterSettings()
         Log.d(TAG, "Filters updated: sat=${live2DRenderer?.postProcess?.isSaturationEnabled} outline=${live2DRenderer?.postProcess?.isOutlineEnabled}")
         return START_STICKY
     }
@@ -105,7 +93,7 @@ class OverlayService : Service() {
     }
 
     private fun addOverlayView() {
-        val sizePx = (300 * resources.displayMetrics.density).toInt()
+        overlaySizePx = (300 * resources.displayMetrics.density).toInt()
 
         val textureManager = LAppTextureManager(this)
         live2DManager = LAppLive2DManager(textureManager)
@@ -116,7 +104,34 @@ class OverlayService : Service() {
             "Alice Cross Tensor.model3.json"
         )
 
-        // Apply filter settings
+        applyFilterSettings()
+
+        glSurfaceView = GLSurfaceView(this).apply {
+            setEGLContextClientVersion(2)
+            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            holder.setFormat(PixelFormat.TRANSLUCENT)
+            setZOrderOnTop(true)
+            setRenderer(live2DRenderer)
+            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        }
+
+        overlayParams = WindowManager.LayoutParams(
+            overlaySizePx,
+            overlaySizePx,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 100
+            y = 300
+        }
+
+        setupDragListener(overlayParams!!)
+        windowManager.addView(glSurfaceView, overlayParams)
+    }
+
+    private fun applyFilterSettings() {
         val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
         live2DRenderer?.postProcess?.isSaturationEnabled =
             prefs.getBoolean(FilterSettings.KEY_SATURATION, false)
@@ -132,30 +147,6 @@ class OverlayService : Service() {
             prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
             1.0f
         )
-
-        glSurfaceView = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2)
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-            holder.setFormat(PixelFormat.TRANSLUCENT)
-            setZOrderOnTop(true)
-            setRenderer(live2DRenderer)
-            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
-        }
-
-        val params = WindowManager.LayoutParams(
-            sizePx,
-            sizePx,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 300
-        }
-
-        setupDragListener(params)
-        windowManager.addView(glSurfaceView, params)
     }
 
     private fun setupDragListener(params: WindowManager.LayoutParams) {
@@ -163,8 +154,45 @@ class OverlayService : Service() {
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
+        var isScaling = false
+        val minSize = (100 * resources.displayMetrics.density).toInt()
+        val maxSize = (800 * resources.displayMetrics.density).toInt()
+
+        val scaleDetector = ScaleGestureDetector(
+            this,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                    isScaling = true
+                    return true
+                }
+
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    overlaySizePx = (overlaySizePx * detector.scaleFactor).toInt()
+                        .coerceIn(minSize, maxSize)
+
+                    // Keep center position stable
+                    val oldCenterX = params.x + params.width / 2
+                    val oldCenterY = params.y + params.height / 2
+
+                    params.width = overlaySizePx
+                    params.height = overlaySizePx
+
+                    params.x = oldCenterX - overlaySizePx / 2
+                    params.y = oldCenterY - overlaySizePx / 2
+
+                    windowManager.updateViewLayout(glSurfaceView, params)
+                    return true
+                }
+
+                override fun onScaleEnd(detector: ScaleGestureDetector) {
+                    isScaling = false
+                }
+            }
+        )
 
         glSurfaceView?.setOnTouchListener { _, event ->
+            scaleDetector.onTouchEvent(event)
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
@@ -174,7 +202,7 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (event.pointerCount == 1) {
+                    if (!isScaling && event.pointerCount == 1) {
                         params.x = initialX + (event.rawX - initialTouchX).toInt()
                         params.y = initialY + (event.rawY - initialTouchY).toInt()
                         windowManager.updateViewLayout(glSurfaceView, params)

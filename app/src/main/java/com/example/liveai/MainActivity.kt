@@ -50,6 +50,14 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         Log.d(TAG, "MainActivity created")
 
+        val btnOverlayPreview = findViewById<Button>(R.id.btnOverlayPreview)
+        btnOverlayPreview.setOnClickListener {
+            Log.d(TAG, "Overlay preview clicked")
+            startActivity(Intent(this, WallpaperSetupActivity::class.java).apply {
+                putExtra(WallpaperSetupActivity.EXTRA_MODE, WallpaperSetupActivity.MODE_OVERLAY)
+            })
+        }
+
         val btnToggleOverlay = findViewById<Button>(R.id.btnToggleOverlay)
         btnToggleOverlay.setOnClickListener {
             Log.d(TAG, "Button clicked. canDrawOverlays=${Settings.canDrawOverlays(this)}")

@@ -44,7 +44,12 @@ class WallpaperSetupActivity : AppCompatActivity() {
         const val KEY_SCALE = "model_scale"
         const val KEY_OFFSET_X = "model_offset_x"
         const val KEY_OFFSET_Y = "model_offset_y"
+        const val EXTRA_MODE = "setup_mode"
+        const val MODE_WALLPAPER = "wallpaper"
+        const val MODE_OVERLAY = "overlay"
     }
+
+    private var setupMode = MODE_WALLPAPER
 
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
@@ -56,6 +61,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        setupMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_WALLPAPER
 
         // Load existing settings
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -284,8 +291,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
         btnRow.addView(btnReset)
 
         val btnApply = Button(this).apply {
-            text = "Apply Wallpaper"
-            setOnClickListener { applyWallpaper() }
+            text = if (setupMode == MODE_OVERLAY) "Apply to Overlay" else "Apply Wallpaper"
+            setOnClickListener { applySettings() }
         }
         btnRow.addView(btnApply)
 
@@ -369,7 +376,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyWallpaper() {
+    private fun applySettings() {
         // Save position/scale settings
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
             .putFloat(KEY_SCALE, modelScale)
@@ -389,17 +396,24 @@ class WallpaperSetupActivity : AppCompatActivity() {
             .putFloat(FilterSettings.KEY_OUTLINE_COLOR_B, outColor[2])
             .apply()
 
-        Log.d(TAG, "Settings saved: scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
+        Log.d(TAG, "Settings saved: mode=$setupMode scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
 
-        // Launch wallpaper picker
-        val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
-            putExtra(
-                WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                ComponentName(this@WallpaperSetupActivity, Live2DWallpaperService::class.java)
-            )
+        if (setupMode == MODE_OVERLAY) {
+            // Restart overlay service to pick up new filter settings
+            val intent = Intent(this, OverlayService::class.java)
+            startForegroundService(intent)
+            finish()
+        } else {
+            // Launch wallpaper picker
+            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+                putExtra(
+                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                    ComponentName(this@WallpaperSetupActivity, Live2DWallpaperService::class.java)
+                )
+            }
+            startActivity(intent)
+            finish()
         }
-        startActivity(intent)
-        finish()
     }
 
     override fun onPause() {

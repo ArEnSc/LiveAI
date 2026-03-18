@@ -7,16 +7,23 @@
     android:padding="24dp">
 
     <Button
+        android:id="@+id/btnOverlayPreview"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Mode 1: Overlay Setup" />
+
+    <Button
         android:id="@+id/btnToggleOverlay"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Mode 1: Start Overlay" />
+        android:layout_marginTop="8dp"
+        android:text="Start Overlay" />
 
     <Button
         android:id="@+id/btnPickBackground"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="24dp"
         android:text="Pick Wallpaper Background" />
 
     <Button
@@ -24,6 +31,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="Mode 2: Set as Wallpaper" />
+        android:text="Mode 2: Wallpaper Setup" />
 
 </LinearLayout>
