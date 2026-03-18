@@ -1,0 +1,20 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamPupil",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamPupil2",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamStarEye",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

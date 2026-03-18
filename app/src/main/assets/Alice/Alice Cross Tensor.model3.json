@@ -1,0 +1,41 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Alice Cross Tensor.moc3",
+		"Textures": [
+			"Alice Cross Tensor.8192/texture_00.png",
+			"Alice Cross Tensor.8192/texture_01.png"
+		],
+		"Physics": "Alice Cross Tensor.physics3.json",
+		"DisplayInfo": "Alice Cross Tensor.cdi3.json",
+		"Motions": {
+			"Idle": [
+				{
+					"File": "animation/Idle.motion3.json",
+					"FadeInTime": 0.5,
+					"FadeOutTime": 0.5
+				},
+				{
+					"File": "animation/Hip Sway.motion3.json",
+					"FadeInTime": 0.5,
+					"FadeOutTime": 0.5
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		}
+	]
+}

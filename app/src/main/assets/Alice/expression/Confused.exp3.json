@@ -1,0 +1,20 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamAngry4",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamConfuse",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamPupil2",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

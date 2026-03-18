@@ -1,0 +1,80 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ParamAngry",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamAngleX",
+            "Value": -14.831583976745606,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamAngleY",
+            "Value": 30.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamAngleZ",
+            "Value": 0.760577917098999,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBodyAngleX",
+            "Value": -10.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBodyAngleY",
+            "Value": -2.394059896469116,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBodyAngleZ",
+            "Value": 0.12676000595092774,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowLAngle",
+            "Value": -6.274897575378418,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowLY",
+            "Value": -0.3232521414756775,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowRForm",
+            "Value": -2.980232238769531e-7,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowRAngle",
+            "Value": -6.274907112121582,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowRY",
+            "Value": -0.08873587846755982,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthForm",
+            "Value": -1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthOpenY",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthX",
+            "Value": 0.23451673984527589,
+            "Blend": "Add"
+        }
+    ]
+}

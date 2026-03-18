@@ -1,0 +1,30 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamAngry2",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamPupil2",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamPupil",
+			"Value": 0,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamIsEyeSmall",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamIsEyeSmall2",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

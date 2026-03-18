@@ -5,14 +5,19 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.PixelFormat
+import android.opengl.GLSurfaceView
 import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
+import com.example.liveai.live2d.LAppDefine
+import com.example.liveai.live2d.LAppLive2DManager
+import com.example.liveai.live2d.LAppPal
+import com.example.liveai.live2d.LAppTextureManager
+import com.example.liveai.live2d.Live2DRenderer
+import com.live2d.sdk.cubism.framework.CubismFramework
 
 class OverlayService : Service() {
 
@@ -23,7 +28,8 @@ class OverlayService : Service() {
     }
 
     private lateinit var windowManager: WindowManager
-    private var overlayView: View? = null
+    private var glSurfaceView: GLSurfaceView? = null
+    private var live2DManager: LAppLive2DManager? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,12 +39,28 @@ class OverlayService : Service() {
         try {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, buildNotification())
+
+            initCubism()
+
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
             addOverlayView()
             Log.d(TAG, "Overlay view added successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed in onCreate", e)
         }
+    }
+
+    private fun initCubism() {
+        LAppPal.setup(this)
+
+        val option = CubismFramework.Option()
+        option.logFunction = LAppPal.PrintLogFunction()
+        option.loggingLevel = LAppDefine.cubismLoggingLevel
+
+        CubismFramework.cleanUp()
+        CubismFramework.startUp(option)
+
+        LAppPal.updateTime()
     }
 
     private fun createNotificationChannel() {
@@ -60,16 +82,29 @@ class OverlayService : Service() {
     }
 
     private fun addOverlayView() {
-        val squareSizePx = (150 * resources.displayMetrics.density).toInt()
-        Log.d(TAG, "Creating square: ${squareSizePx}x${squareSizePx}px")
+        val sizePx = (300 * resources.displayMetrics.density).toInt()
 
-        overlayView = View(this).apply {
-            setBackgroundColor(Color.RED)
+        val textureManager = LAppTextureManager(this)
+        live2DManager = LAppLive2DManager(textureManager)
+
+        val renderer = Live2DRenderer(
+            live2DManager!!,
+            "Alice/",
+            "Alice Cross Tensor.model3.json"
+        )
+
+        glSurfaceView = GLSurfaceView(this).apply {
+            setEGLContextClientVersion(2)
+            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            holder.setFormat(PixelFormat.TRANSLUCENT)
+            setZOrderOnTop(true)
+            setRenderer(renderer)
+            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
         val params = WindowManager.LayoutParams(
-            squareSizePx,
-            squareSizePx,
+            sizePx,
+            sizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -80,7 +115,7 @@ class OverlayService : Service() {
         }
 
         setupDragListener(params)
-        windowManager.addView(overlayView, params)
+        windowManager.addView(glSurfaceView, params)
     }
 
     private fun setupDragListener(params: WindowManager.LayoutParams) {
@@ -89,7 +124,7 @@ class OverlayService : Service() {
         var initialTouchX = 0f
         var initialTouchY = 0f
 
-        overlayView?.setOnTouchListener { _, event ->
+        glSurfaceView?.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
@@ -101,7 +136,7 @@ class OverlayService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     params.x = initialX + (event.rawX - initialTouchX).toInt()
                     params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager.updateViewLayout(overlayView, params)
+                    windowManager.updateViewLayout(glSurfaceView, params)
                     true
                 }
                 else -> false
@@ -112,8 +147,11 @@ class OverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "OverlayService onDestroy")
-        overlayView?.let {
+        glSurfaceView?.let {
+            it.onPause()
             windowManager.removeView(it)
         }
+        live2DManager?.releaseModel()
+        CubismFramework.dispose()
     }
 }

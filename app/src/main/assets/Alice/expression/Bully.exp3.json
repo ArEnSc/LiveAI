@@ -1,0 +1,95 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ParamIsEyeSmall",
+            "Value": 0.29772937297821047,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamIsEyeSmall2",
+            "Value": 0.4996381402015686,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLSmile",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLSmile2",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLOpen",
+            "Value": -0.09970992803573609,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeROpen",
+            "Value": -0.09997135400772095,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLid",
+            "Value": 0.252463698387146,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLidL",
+            "Value": -0.6886342763900757,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeBallX",
+            "Value": 0.21217679977416993,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeBallY",
+            "Value": 0.20533084869384767,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowLForm",
+            "Value": -0.29161006212234499,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowLAngle",
+            "Value": -10.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowLY",
+            "Value": -1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowRForm",
+            "Value": 0.25251686573028567,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowRAngle",
+            "Value": -10.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamBrowRY",
+            "Value": 0.3346503973007202,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthForm",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthOpenY",
+            "Value": 0.2515297830104828,
+            "Blend": "Add"
+        }
+    ]
+}

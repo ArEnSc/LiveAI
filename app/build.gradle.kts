@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -42,4 +43,11 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+
+    implementation(platform(libs.openai.client.bom))
+    implementation(libs.openai.client)
+    runtimeOnly(libs.ktor.client.okhttp)
+
+    implementation(project(":framework"))
+    implementation(fileTree(mapOf("dir" to "../libs", "include" to listOf("*.aar"))))
 }

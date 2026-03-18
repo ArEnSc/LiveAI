@@ -1,0 +1,15 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamAnyaEye",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamDefaultEyeToggle",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

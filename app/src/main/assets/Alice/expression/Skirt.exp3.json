@@ -1,0 +1,20 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamGlitch6",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamGlitch7",
+			"Value": 0,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamGlitch5",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

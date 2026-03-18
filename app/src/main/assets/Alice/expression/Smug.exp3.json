@@ -1,0 +1,85 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ParamGlitch8",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamGlitch2",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamGlitch12",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamA8",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamA5",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamA12",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamAngleX",
+            "Value": -19.19972801208496,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamAngleY",
+            "Value": 30.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLOpen",
+            "Value": -0.4920938014984131,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeROpen",
+            "Value": -0.4678933024406433,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLid",
+            "Value": -0.08605086803436279,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeLidL",
+            "Value": -0.12907463312149049,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeBallX",
+            "Value": 0.08067178726196289,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeBallY",
+            "Value": -0.30117231607437136,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthForm",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamMouthX2",
+            "Value": 0.0,
+            "Blend": "Add"
+        }
+    ]
+}
