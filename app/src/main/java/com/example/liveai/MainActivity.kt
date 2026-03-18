@@ -1,6 +1,8 @@
 package com.example.liveai
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -11,6 +13,7 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
 
@@ -19,6 +22,18 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "LiveAI"
         private const val OVERLAY_PERMISSION_REQUEST = 1001
+    }
+
+    private val requestAudioPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Log.d(TAG, "RECORD_AUDIO permission granted")
+            startOverlayService()
+        } else {
+            Toast.makeText(this, "Microphone permission denied — noise monitoring disabled", Toast.LENGTH_SHORT).show()
+            startOverlayService()
+        }
     }
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -96,10 +111,20 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "onActivityResult requestCode=$requestCode canDrawOverlays=${Settings.canDrawOverlays(this)}")
         if (requestCode == OVERLAY_PERMISSION_REQUEST) {
             if (Settings.canDrawOverlays(this)) {
-                startOverlayService()
+                startOverlayWithAudioPermission()
             } else {
                 Toast.makeText(this, "Overlay permission denied", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun startOverlayWithAudioPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            startOverlayService()
         }
     }
 

@@ -1,9 +1,11 @@
 package com.example.liveai
 
+import android.Manifest
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -30,6 +32,8 @@ import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.LAppTextureManager
 import com.example.liveai.live2d.PostProcessFilter
 import com.live2d.sdk.cubism.framework.CubismFramework
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -50,6 +54,13 @@ class WallpaperSetupActivity : AppCompatActivity() {
     }
 
     private var setupMode = MODE_WALLPAPER
+
+    private val requestAudioPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // Start regardless of grant — service handles missing permission gracefully
+        launchOverlayService()
+    }
 
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
@@ -399,10 +410,13 @@ class WallpaperSetupActivity : AppCompatActivity() {
         Log.d(TAG, "Settings saved: mode=$setupMode scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
 
         if (setupMode == MODE_OVERLAY) {
-            // Restart overlay service to pick up new filter settings
-            val intent = Intent(this, OverlayService::class.java)
-            startForegroundService(intent)
-            finish()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+            } else {
+                launchOverlayService()
+            }
         } else {
             // Launch wallpaper picker
             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
@@ -414,6 +428,12 @@ class WallpaperSetupActivity : AppCompatActivity() {
             startActivity(intent)
             finish()
         }
+    }
+
+    private fun launchOverlayService() {
+        val intent = Intent(this, OverlayService::class.java)
+        startForegroundService(intent)
+        finish()
     }
 
     override fun onPause() {
