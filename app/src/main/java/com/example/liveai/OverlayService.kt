@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.IBinder
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -16,22 +17,28 @@ import android.view.WindowManager
 class OverlayService : Service() {
 
     companion object {
+        private const val TAG = "LiveAI"
         private const val CHANNEL_ID = "overlay_channel"
         private const val NOTIFICATION_ID = 1
-        private const val SQUARE_SIZE = 200
     }
 
     private lateinit var windowManager: WindowManager
-    private lateinit var overlayView: View
+    private var overlayView: View? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        addOverlayView()
+        Log.d(TAG, "OverlayService onCreate")
+        try {
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, buildNotification())
+            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            addOverlayView()
+            Log.d(TAG, "Overlay view added successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed in onCreate", e)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -53,13 +60,16 @@ class OverlayService : Service() {
     }
 
     private fun addOverlayView() {
+        val squareSizePx = (150 * resources.displayMetrics.density).toInt()
+        Log.d(TAG, "Creating square: ${squareSizePx}x${squareSizePx}px")
+
         overlayView = View(this).apply {
-            setBackgroundColor(Color.argb(200, 100, 149, 237))  // Cornflower blue
+            setBackgroundColor(Color.RED)
         }
 
         val params = WindowManager.LayoutParams(
-            SQUARE_SIZE,
-            SQUARE_SIZE,
+            squareSizePx,
+            squareSizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -79,7 +89,7 @@ class OverlayService : Service() {
         var initialTouchX = 0f
         var initialTouchY = 0f
 
-        overlayView.setOnTouchListener { _, event ->
+        overlayView?.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
@@ -101,6 +111,9 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        windowManager.removeView(overlayView)
+        Log.d(TAG, "OverlayService onDestroy")
+        overlayView?.let {
+            windowManager.removeView(it)
+        }
     }
 }
