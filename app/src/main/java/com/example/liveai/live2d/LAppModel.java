@@ -17,6 +17,8 @@ import com.live2d.sdk.cubism.framework.motion.CubismMotion;
 import com.live2d.sdk.cubism.framework.rendering.CubismRenderer;
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid;
 
+import com.example.liveai.audio.AudioDrivenMotion;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +32,8 @@ public class LAppModel extends CubismUserModel {
     private ICubismModelSetting modelSetting;
     private String modelHomeDirectory;
     private float userTimeSeconds;
+
+    private AudioDrivenMotion audioDrivenMotion;
 
     private final List<CubismId> eyeBlinkIds = new ArrayList<>();
     private final List<CubismId> lipSyncIds = new ArrayList<>();
@@ -86,6 +90,10 @@ public class LAppModel extends CubismUserModel {
         setupTextures();
     }
 
+    public void setAudioDrivenMotion(AudioDrivenMotion motion) {
+        this.audioDrivenMotion = motion;
+    }
+
     public void deleteModel() {
         delete();
     }
@@ -137,6 +145,10 @@ public class LAppModel extends CubismUserModel {
 
         if (pose != null) {
             pose.updateParameters(model, deltaTimeSeconds);
+        }
+
+        if (audioDrivenMotion != null) {
+            audioDrivenMotion.update(model, deltaTimeSeconds);
         }
 
         model.update();

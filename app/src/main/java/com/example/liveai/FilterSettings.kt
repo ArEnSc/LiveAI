@@ -9,4 +9,9 @@ object FilterSettings {
     const val KEY_OUTLINE_COLOR_R = "outline_color_r"
     const val KEY_OUTLINE_COLOR_G = "outline_color_g"
     const val KEY_OUTLINE_COLOR_B = "outline_color_b"
+
+    // Audio motion
+    const val KEY_AUDIO_MOTION_ENABLED = "audio_motion_enabled"
+    const val KEY_AUDIO_MOTION_INTENSITY = "audio_motion_intensity"
+    const val KEY_AUDIO_MOTION_SPEED = "audio_motion_speed"
 }

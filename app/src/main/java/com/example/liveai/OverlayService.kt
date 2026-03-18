@@ -19,6 +19,9 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import com.example.liveai.audio.AudioDrivenMotion
+import com.example.liveai.audio.AudioMotionConfig
+import com.example.liveai.audio.AudioVolumeSource
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
@@ -43,6 +46,7 @@ class OverlayService : Service() {
     private var borderView: View? = null
     private var live2DManager: LAppLive2DManager? = null
     private var live2DRenderer: Live2DRenderer? = null
+    private var audioVolumeSource: AudioVolumeSource? = null
     private var overlayWidth = 0
     private var overlayHeight = 0
     private var modelAspect = 1.0f
@@ -53,8 +57,10 @@ class OverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        applyFilterSettings()
-        Log.d(TAG, "Filters updated: sat=${live2DRenderer?.postProcess?.isSaturationEnabled} outline=${live2DRenderer?.postProcess?.isOutlineEnabled}")
+        if (live2DRenderer != null) {
+            applyFilterSettings()
+            Log.d(TAG, "Filters updated: sat=${live2DRenderer?.postProcess?.isSaturationEnabled} outline=${live2DRenderer?.postProcess?.isOutlineEnabled}")
+        }
         return START_STICKY
     }
 
@@ -72,6 +78,7 @@ class OverlayService : Service() {
             Log.d(TAG, "Overlay view added successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed in onCreate", e)
+            stopSelf()
         }
     }
 
@@ -111,8 +118,23 @@ class OverlayService : Service() {
         overlayWidth = (300 * dp).toInt()
         overlayHeight = (300 * dp).toInt()
 
+        // Start mic and audio-driven motion
+        audioVolumeSource = AudioVolumeSource(this)
+        audioVolumeSource?.start()
+
         val textureManager = LAppTextureManager(this)
         live2DManager = LAppLive2DManager(textureManager)
+
+        val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        val audioMotion = AudioDrivenMotion(
+            audioVolumeSource,
+            AudioMotionConfig(
+                enabled = prefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true),
+                intensity = prefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f),
+                speed = prefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
+            )
+        )
+        live2DManager?.setAudioDrivenMotion(audioMotion)
 
         live2DRenderer = Live2DRenderer(
             live2DManager!!,
@@ -285,6 +307,7 @@ class OverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "OverlayService onDestroy")
+        audioVolumeSource?.stop()
         handler.removeCallbacks(hideBorderRunnable)
         containerView?.let {
             glSurfaceView?.onPause()

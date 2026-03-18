@@ -13,6 +13,9 @@ import android.os.Looper
 import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.SurfaceHolder
+import com.example.liveai.audio.AudioDrivenMotion
+import com.example.liveai.audio.AudioMotionConfig
+import com.example.liveai.audio.AudioVolumeSource
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
@@ -42,6 +45,7 @@ class Live2DWallpaperService : WallpaperService() {
 
         private var live2DManager: LAppLive2DManager? = null
         private val postProcess = PostProcessFilter()
+        private var audioVolumeSource: AudioVolumeSource? = null
         private var cubismInitialized = false
         private var modelLoaded = false
         private var surfaceWidth = 0
@@ -111,6 +115,9 @@ class Live2DWallpaperService : WallpaperService() {
             visible = false
             handler.removeCallbacks(drawRunnable)
 
+            audioVolumeSource?.stop()
+            audioVolumeSource = null
+
             live2DManager?.releaseModel()
             live2DManager = null
             modelLoaded = false
@@ -163,6 +170,19 @@ class Live2DWallpaperService : WallpaperService() {
 
             // Load filter settings
             val filterPrefs = getSharedPreferences(FilterSettings.PREFS_NAME, MODE_PRIVATE)
+
+            // Audio-driven motion
+            audioVolumeSource = AudioVolumeSource(this@Live2DWallpaperService)
+            audioVolumeSource?.start()
+            val audioMotion = AudioDrivenMotion(
+                audioVolumeSource,
+                AudioMotionConfig(
+                    enabled = filterPrefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true),
+                    intensity = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f),
+                    speed = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
+                )
+            )
+            live2DManager?.setAudioDrivenMotion(audioMotion)
             postProcess.isSaturationEnabled = filterPrefs.getBoolean(FilterSettings.KEY_SATURATION, false)
             postProcess.isOutlineEnabled = filterPrefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
             postProcess.saturationAmount = filterPrefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)

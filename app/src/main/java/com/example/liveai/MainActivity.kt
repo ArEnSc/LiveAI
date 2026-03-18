@@ -26,14 +26,9 @@ class MainActivity : AppCompatActivity() {
 
     private val requestAudioPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            Log.d(TAG, "RECORD_AUDIO permission granted")
-            startOverlayService()
-        } else {
-            Toast.makeText(this, "Microphone permission denied — noise monitoring disabled", Toast.LENGTH_SHORT).show()
-            startOverlayService()
-        }
+    ) { _ ->
+        // Start regardless — AudioVolumeSource handles missing permission gracefully
+        launchOverlayService()
     }
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -76,12 +71,12 @@ class MainActivity : AppCompatActivity() {
         val btnToggleOverlay = findViewById<Button>(R.id.btnToggleOverlay)
         btnToggleOverlay.setOnClickListener {
             Log.d(TAG, "Button clicked. canDrawOverlays=${Settings.canDrawOverlays(this)}")
-            if (Settings.canDrawOverlays(this)) {
-                startOverlayService()
-            } else {
+            if (!Settings.canDrawOverlays(this)) {
                 Toast.makeText(this, "Requesting overlay permission...", Toast.LENGTH_SHORT).show()
                 requestOverlayPermission()
+                return@setOnClickListener
             }
+            ensureAudioThenStartOverlay()
         }
 
         val btnPickBackground = findViewById<Button>(R.id.btnPickBackground)
@@ -111,26 +106,33 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "onActivityResult requestCode=$requestCode canDrawOverlays=${Settings.canDrawOverlays(this)}")
         if (requestCode == OVERLAY_PERMISSION_REQUEST) {
             if (Settings.canDrawOverlays(this)) {
-                startOverlayWithAudioPermission()
+                ensureAudioThenStartOverlay()
             } else {
                 Toast.makeText(this, "Overlay permission denied", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun startOverlayWithAudioPermission() {
+    /**
+     * Single entry point: checks RECORD_AUDIO, requests if needed, then starts service.
+     * Always goes through this before startForegroundService.
+     */
+    private fun ensureAudioThenStartOverlay() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
             requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
         } else {
-            startOverlayService()
+            launchOverlayService()
         }
     }
 
-    private fun startOverlayService() {
-        Log.d(TAG, "Starting overlay service")
+    private fun launchOverlayService() {
+        Log.d(TAG, "Launching overlay service")
         try {
+            // Stop any existing zombie service first
+            stopService(Intent(this, OverlayService::class.java))
+
             val intent = Intent(this, OverlayService::class.java)
             startForegroundService(intent)
             Toast.makeText(this, "Overlay started!", Toast.LENGTH_SHORT).show()

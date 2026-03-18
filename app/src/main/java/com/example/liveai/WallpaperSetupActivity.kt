@@ -26,6 +26,9 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.liveai.audio.AudioDrivenMotion
+import com.example.liveai.audio.AudioMotionConfig
+import com.example.liveai.audio.AudioVolumeSource
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
@@ -65,10 +68,15 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
     private val postProcess = PostProcessFilter()
+    private var audioVolumeSource: AudioVolumeSource? = null
+    private var audioDrivenMotion: AudioDrivenMotion? = null
 
     private var modelScale = 1.0f
     private var offsetX = 0.0f
     private var offsetY = 0.0f
+    private var audioMotionEnabled = true
+    private var audioMotionIntensity = 1.0f
+    private var audioMotionSpeed = 1.0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,6 +101,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
             1.0f
         )
 
+        audioMotionEnabled = filterPrefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true)
+        audioMotionIntensity = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f)
+        audioMotionSpeed = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
+
         val root = FrameLayout(this)
 
         // Init Cubism
@@ -104,11 +116,25 @@ class WallpaperSetupActivity : AppCompatActivity() {
         CubismFramework.startUp(option)
         LAppPal.updateTime()
 
+        // Start mic for preview
+        audioVolumeSource = AudioVolumeSource(this)
+        audioVolumeSource?.start()
+
         val textureManager = LAppTextureManager(this)
         live2DManager = LAppLive2DManager(textureManager)
         live2DManager?.setFitToScreen(true)
         live2DManager?.setModelScale(modelScale)
         live2DManager?.setModelOffset(offsetX, offsetY)
+
+        audioDrivenMotion = AudioDrivenMotion(
+            audioVolumeSource,
+            AudioMotionConfig(
+                enabled = audioMotionEnabled,
+                intensity = audioMotionIntensity,
+                speed = audioMotionSpeed
+            )
+        )
+        live2DManager?.setAudioDrivenMotion(audioDrivenMotion)
 
         val renderer = SetupRenderer()
 
@@ -274,6 +300,125 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         panel.addView(colorRow)
 
+        // --- Audio Motion section ---
+        val audioHeader = TextView(this).apply {
+            text = "Audio Motion"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
+        }
+        panel.addView(audioHeader)
+
+        // Audio motion toggle + volume meter
+        val audioRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val audioSwitch = Switch(this).apply {
+            text = "Enabled"
+            setTextColor(Color.WHITE)
+            isChecked = audioMotionEnabled
+            setOnCheckedChangeListener { _, checked ->
+                audioMotionEnabled = checked
+                updateAudioMotionConfig()
+            }
+        }
+        audioRow.addView(audioSwitch, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val volumeMeter = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+        }
+        audioRow.addView(volumeMeter, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val volumeLabel = TextView(this).apply {
+            text = "0%"
+            setTextColor(Color.WHITE)
+            setPadding((8 * dp).toInt(), 0, 0, 0)
+        }
+        audioRow.addView(volumeLabel)
+        panel.addView(audioRow)
+
+        // Volume meter updater
+        val volumeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val volumeUpdater = object : Runnable {
+            override fun run() {
+                val vol = ((audioVolumeSource?.volume ?: 0f) * 100).toInt()
+                volumeMeter.progress = vol
+                volumeLabel.text = "${vol}%"
+                volumeHandler.postDelayed(this, 100)
+            }
+        }
+        volumeHandler.post(volumeUpdater)
+
+        // Intensity slider
+        val intRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val intLabel2 = TextView(this).apply {
+            text = "Intensity"
+            setTextColor(Color.WHITE)
+        }
+        intRow.addView(intLabel2, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val intValue = TextView(this).apply {
+            text = "%.1f".format(audioMotionIntensity)
+            setTextColor(Color.WHITE)
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        }
+
+        val intSlider = SeekBar(this).apply {
+            max = 300
+            progress = (audioMotionIntensity * 100).toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    audioMotionIntensity = progress / 100f
+                    intValue.text = "%.1f".format(audioMotionIntensity)
+                    updateAudioMotionConfig()
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        intRow.addView(intSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+        intRow.addView(intValue)
+        panel.addView(intRow)
+
+        // Speed slider
+        val spdRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val spdLabel2 = TextView(this).apply {
+            text = "Speed"
+            setTextColor(Color.WHITE)
+        }
+        spdRow.addView(spdLabel2, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val spdValue = TextView(this).apply {
+            text = "%.1f".format(audioMotionSpeed)
+            setTextColor(Color.WHITE)
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        }
+
+        val spdSlider = SeekBar(this).apply {
+            max = 300
+            progress = (audioMotionSpeed * 100).toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    audioMotionSpeed = progress / 100f
+                    spdValue.text = "%.1f".format(audioMotionSpeed)
+                    updateAudioMotionConfig()
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        spdRow.addView(spdSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+        spdRow.addView(spdValue)
+        panel.addView(spdRow)
+
         // Buttons row
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -405,6 +550,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
             .putFloat(FilterSettings.KEY_OUTLINE_COLOR_R, outColor[0])
             .putFloat(FilterSettings.KEY_OUTLINE_COLOR_G, outColor[1])
             .putFloat(FilterSettings.KEY_OUTLINE_COLOR_B, outColor[2])
+            .putBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, audioMotionEnabled)
+            .putFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, audioMotionIntensity)
+            .putFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, audioMotionSpeed)
             .apply()
 
         Log.d(TAG, "Settings saved: mode=$setupMode scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
@@ -430,7 +578,18 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateAudioMotionConfig() {
+        audioDrivenMotion?.config = AudioMotionConfig(
+            enabled = audioMotionEnabled,
+            intensity = audioMotionIntensity,
+            speed = audioMotionSpeed
+        )
+    }
+
     private fun launchOverlayService() {
+        // Stop any existing zombie service first
+        stopService(Intent(this, OverlayService::class.java))
+
         val intent = Intent(this, OverlayService::class.java)
         startForegroundService(intent)
         finish()
@@ -448,6 +607,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        audioVolumeSource?.stop()
         live2DManager?.releaseModel()
         CubismFramework.dispose()
     }

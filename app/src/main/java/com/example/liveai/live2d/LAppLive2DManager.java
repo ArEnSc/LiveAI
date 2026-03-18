@@ -1,5 +1,6 @@
 package com.example.liveai.live2d;
 
+import com.example.liveai.audio.AudioDrivenMotion;
 import com.live2d.sdk.cubism.framework.math.CubismMatrix44;
 
 public class LAppLive2DManager {
@@ -36,11 +37,24 @@ public class LAppLive2DManager {
         this.modelOffsetY = y;
     }
 
+    private AudioDrivenMotion audioDrivenMotion;
+
+    public void setAudioDrivenMotion(AudioDrivenMotion motion) {
+        this.audioDrivenMotion = motion;
+        if (model != null) {
+            model.setAudioDrivenMotion(motion);
+        }
+    }
+
     public void loadModel(String dir, String modelJsonName) {
         releaseModel();
 
         model = new LAppModel(textureManager);
         model.loadAssets(dir, modelJsonName);
+
+        if (audioDrivenMotion != null) {
+            model.setAudioDrivenMotion(audioDrivenMotion);
+        }
     }
 
     public void releaseModel() {
