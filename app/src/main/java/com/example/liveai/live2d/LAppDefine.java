@@ -4,6 +4,8 @@ import com.live2d.sdk.cubism.framework.CubismFrameworkConfig.LogLevel;
 
 public class LAppDefine {
     public static final boolean DEBUG_LOG_ENABLE = true;
+    public static final boolean DEBUG_DRAW_BOUNDS = true;
+    public static final float DEFAULT_MODEL_SCALE = 1.0f;
     public static final boolean MOC_CONSISTENCY_VALIDATION_ENABLE = true;
     public static final boolean MOTION_CONSISTENCY_VALIDATION_ENABLE = true;
     public static final boolean PREMULTIPLIED_ALPHA_ENABLE = true;

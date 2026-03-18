@@ -5,6 +5,10 @@ import android.opengl.GLSurfaceView;
 
 import com.live2d.sdk.cubism.framework.CubismFramework;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -17,6 +21,10 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
 
     private final String modelDir;
     private final String modelJson;
+
+    private int debugShaderProgram = 0;
+    private int debugPositionHandle = 0;
+    private int debugColorHandle = 0;
 
     public Live2DRenderer(LAppLive2DManager manager, String modelDir, String modelJson) {
         this.manager = manager;
@@ -33,6 +41,10 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
         CubismFramework.initialize();
+
+        if (LAppDefine.DEBUG_DRAW_BOUNDS) {
+            initDebugShader();
+        }
     }
 
     @Override
@@ -58,5 +70,64 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
         manager.onUpdate();
+
+        if (LAppDefine.DEBUG_DRAW_BOUNDS) {
+            drawDebugBounds();
+        }
+    }
+
+    private void initDebugShader() {
+        String vertexShaderCode =
+            "attribute vec4 vPosition;" +
+            "void main() { gl_Position = vPosition; }";
+
+        String fragmentShaderCode =
+            "precision mediump float;" +
+            "uniform vec4 vColor;" +
+            "void main() { gl_FragColor = vColor; }";
+
+        int vertexShader = loadShader(GL_VERTEX_SHADER, vertexShaderCode);
+        int fragmentShader = loadShader(GL_FRAGMENT_SHADER, fragmentShaderCode);
+
+        debugShaderProgram = GLES20.glCreateProgram();
+        GLES20.glAttachShader(debugShaderProgram, vertexShader);
+        GLES20.glAttachShader(debugShaderProgram, fragmentShader);
+        GLES20.glLinkProgram(debugShaderProgram);
+
+        debugPositionHandle = GLES20.glGetAttribLocation(debugShaderProgram, "vPosition");
+        debugColorHandle = GLES20.glGetUniformLocation(debugShaderProgram, "vColor");
+    }
+
+    private int loadShader(int type, String shaderCode) {
+        int shader = GLES20.glCreateShader(type);
+        GLES20.glShaderSource(shader, shaderCode);
+        GLES20.glCompileShader(shader);
+        return shader;
+    }
+
+    private void drawDebugBounds() {
+        float[] lineVertices = {
+            -1.0f, -1.0f,
+             1.0f, -1.0f,
+             1.0f,  1.0f,
+            -1.0f,  1.0f,
+            -1.0f, -1.0f
+        };
+
+        FloatBuffer vertexBuffer = ByteBuffer.allocateDirect(lineVertices.length * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer();
+        vertexBuffer.put(lineVertices).position(0);
+
+        GLES20.glUseProgram(debugShaderProgram);
+        GLES20.glEnableVertexAttribArray(debugPositionHandle);
+        GLES20.glVertexAttribPointer(debugPositionHandle, 2, GL_FLOAT, false, 0, vertexBuffer);
+
+        // Green border
+        GLES20.glUniform4f(debugColorHandle, 0.0f, 1.0f, 0.0f, 1.0f);
+        GLES20.glLineWidth(3.0f);
+        GLES20.glDrawArrays(GL_LINE_STRIP, 0, 5);
+
+        GLES20.glDisableVertexAttribArray(debugPositionHandle);
     }
 }

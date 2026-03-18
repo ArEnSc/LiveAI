@@ -125,7 +125,7 @@ class OverlayService : Service() {
         var initialTouchY = 0f
 
         glSurfaceView?.setOnTouchListener { _, event ->
-            when (event.action) {
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
                     initialY = params.y
@@ -134,12 +134,14 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager.updateViewLayout(glSurfaceView, params)
+                    if (event.pointerCount == 1) {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        windowManager.updateViewLayout(glSurfaceView, params)
+                    }
                     true
                 }
-                else -> false
+                else -> true
             }
         }
     }
