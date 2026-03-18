@@ -114,6 +114,43 @@ fun defaultSpeakingEntries(): List<ParamEntry> = listOf(
         harmonics = listOf(
             Harmonic(0.4f, 1.0f)
         )
+    ),
+    // Secondary body params
+    ParamEntry(
+        paramId = "ParamBodyX2",
+        amplitude = 1.5f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.45f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamBodyY2",
+        amplitude = 1.0f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.55f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamBodyZ2",
+        amplitude = 0.8f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.38f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamA_BodyX2",
+        amplitude = 1.0f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.42f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamA_BodyY2",
+        amplitude = 0.8f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.48f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamA_BodyZ2",
+        amplitude = 0.6f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.36f, 1.0f))
     )
 )
 
@@ -190,6 +227,42 @@ fun defaultListeningEntries(): List<ParamEntry> = listOf(
         harmonics = listOf(
             Harmonic(0.35f, 1.0f)
         )
+    ),
+    ParamEntry(
+        paramId = "ParamBodyX2",
+        amplitude = 1.0f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.4f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamBodyY2",
+        amplitude = 0.8f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.5f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamBodyZ2",
+        amplitude = 0.6f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.32f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamA_BodyX2",
+        amplitude = 0.8f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.38f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamA_BodyY2",
+        amplitude = 0.6f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.42f, 1.0f))
+    ),
+    ParamEntry(
+        paramId = "ParamA_BodyZ2",
+        amplitude = 0.5f,
+        isBody = true,
+        harmonics = listOf(Harmonic(0.3f, 1.0f))
     )
 )
 
