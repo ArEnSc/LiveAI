@@ -71,7 +71,7 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     public void onDrawFrame(GL10 unused) {
         LAppPal.updateTime();
 
-        boolean usePostProcess = postProcess.isAnyFilterEnabled();
+        boolean usePostProcess = postProcess.isAnyFilterEnabled() && postProcess.canCapture();
 
         if (usePostProcess) {
             // Render model to FBO
@@ -79,11 +79,9 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
             GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
             manager.onUpdate();
 
-            // Apply filters and draw to screen
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            glClearDepthf(1.0f);
+            // Clear the screen, then apply filters from FBO
             postProcess.endCaptureAndApply();
+            // endCaptureAndApply unbinds FBO first, then draws to screen
         } else {
             // Direct render (no filters)
             glClearColor(0.0f, 0.0f, 0.0f, 0.0f);

@@ -112,6 +112,10 @@ public class PostProcessFilter {
         outlineColor[3] = a;
     }
 
+    public boolean canCapture() {
+        return fboId != 0 && fboWidth > 0 && fboHeight > 0;
+    }
+
     public void beginCapture() {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboId);
         GLES20.glViewport(0, 0, fboWidth, fboHeight);
@@ -122,6 +126,11 @@ public class PostProcessFilter {
     public void endCaptureAndApply() {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glViewport(0, 0, fboWidth, fboHeight);
+
+        // Clear the screen before drawing filtered result
+        GLES20.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+        GLES20.glClearDepthf(1.0f);
 
         int currentTexture = fboTextureId;
 
