@@ -6,6 +6,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -29,15 +30,16 @@ class PocketTtsEngine(private val context: Context) {
         const val LATENT_DIM = 32
         const val COND_DIM = 1024
         const val DEFAULT_TEMPERATURE = 0.7f
-        const val DEFAULT_LSD_STEPS = 10
+        const val DEFAULT_LSD_STEPS = 4
         const val DEFAULT_EOS_THRESHOLD = -4.0f
         const val DEFAULT_MAX_FRAMES = 500
         const val DEFAULT_FRAMES_AFTER_EOS = 3
     }
 
     private lateinit var env: OrtEnvironment
-    private lateinit var textConditioner: OrtSession
-    private lateinit var mimiEncoder: OrtSession
+    private lateinit var sessionOptions: OrtSession.SessionOptions
+    private var textConditioner: OrtSession? = null
+    private var mimiEncoder: OrtSession? = null
     private lateinit var flowLmMain: OrtSession
     private lateinit var flowLmFlow: OrtSession
     private lateinit var mimiDecoder: OrtSession
@@ -64,28 +66,31 @@ class PocketTtsEngine(private val context: Context) {
     )
 
     /**
-     * Load all 5 ONNX models from assets.
+     * Load core ONNX models from assets.
+     * Models are extracted to cache dir for memory-mapped loading (avoids doubling
+     * heap usage from readBytes). Only the 3 AR-loop models are kept resident;
+     * text_conditioner and mimi_encoder are loaded on-demand in generate().
      */
     fun loadModels(): Long {
         val startTime = System.currentTimeMillis()
 
         env = OrtEnvironment.getEnvironment()
-        val sessionOptions = OrtSession.SessionOptions().apply {
+        sessionOptions = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(4)
             setInterOpNumThreads(1)
         }
 
-        textConditioner = loadSession("models/text_conditioner.onnx", sessionOptions)
-        mimiEncoder = loadSession("models/mimi_encoder.onnx", sessionOptions)
-        flowLmMain = loadSession("models/flow_lm_main_int8.onnx", sessionOptions)
-        flowLmFlow = loadSession("models/flow_lm_flow_int8.onnx", sessionOptions)
-        mimiDecoder = loadSession("models/mimi_decoder_int8.onnx", sessionOptions)
+        // Extract all models to cache so we can use file-path sessions (memory-mapped)
+        extractModelsToCacheIfNeeded()
+
+        // Only load the 3 models needed for the AR loop upfront
+        flowLmMain = loadSessionFromFile("flow_lm_main_int8.onnx")
+        flowLmFlow = loadSessionFromFile("flow_lm_flow_int8.onnx")
+        mimiDecoder = loadSessionFromFile("mimi_decoder_int8.onnx")
 
         val elapsed = System.currentTimeMillis() - startTime
-        Log.i(TAG, "Models loaded in ${elapsed}ms")
+        Log.i(TAG, "Core models loaded in ${elapsed}ms (encoder + conditioner loaded on-demand)")
 
-        logModelInfo("text_conditioner", textConditioner)
-        logModelInfo("mimi_encoder", mimiEncoder)
         logModelInfo("flow_lm_main", flowLmMain)
         logModelInfo("flow_lm_flow", flowLmFlow)
         logModelInfo("mimi_decoder", mimiDecoder)
@@ -93,9 +98,33 @@ class PocketTtsEngine(private val context: Context) {
         return elapsed
     }
 
-    private fun loadSession(assetPath: String, options: OrtSession.SessionOptions): OrtSession {
-        val bytes = context.assets.open(assetPath).use { it.readBytes() }
-        return env.createSession(bytes, options)
+    private fun extractModelsToCacheIfNeeded() {
+        val modelDir = File(context.cacheDir, "onnx_models")
+        modelDir.mkdirs()
+
+        val modelFiles = listOf(
+            "text_conditioner.onnx",
+            "mimi_encoder.onnx",
+            "flow_lm_main_int8.onnx",
+            "flow_lm_flow_int8.onnx",
+            "mimi_decoder_int8.onnx"
+        )
+
+        for (filename in modelFiles) {
+            val outFile = File(modelDir, filename)
+            if (outFile.exists()) continue
+            Log.i(TAG, "Extracting $filename to cache...")
+            context.assets.open("models/$filename").use { input ->
+                outFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        }
+    }
+
+    private fun loadSessionFromFile(filename: String): OrtSession {
+        val modelPath = File(context.cacheDir, "onnx_models/$filename").absolutePath
+        return env.createSession(modelPath, sessionOptions)
     }
 
     private fun logModelInfo(name: String, session: OrtSession) {
@@ -132,19 +161,25 @@ class PocketTtsEngine(private val context: Context) {
             if (used > peakMemory) peakMemory = used
         }
 
-        // 1. Encode reference voice
+        // 1. Encode reference voice (load encoder on-demand, release after)
         val voiceEncodeStart = System.currentTimeMillis()
+        mimiEncoder = loadSessionFromFile("mimi_encoder.onnx")
         val voiceEmbeddings = encodeVoice(voiceAudio)
+        mimiEncoder?.close()
+        mimiEncoder = null
         val voiceEncodeTime = System.currentTimeMillis() - voiceEncodeStart
         Log.i(TAG, "Voice encoded in ${voiceEncodeTime}ms, shape: [1, ${voiceEmbeddings[0].size}, $COND_DIM]")
         trackMemory()
 
-        // 2. Tokenize and condition text
+        // 2. Tokenize and condition text (load conditioner on-demand, release after)
         val textCondStart = System.currentTimeMillis()
         val preparedText = prepareText(text)
         val tokenIds = tokenizer.encode(preparedText)
         Log.i(TAG, "Tokenized '$preparedText' -> ${tokenIds.size} tokens: ${tokenIds.toList()}")
+        textConditioner = loadSessionFromFile("text_conditioner.onnx")
         val textEmbeddings = runTextConditioner(tokenIds)
+        textConditioner?.close()
+        textConditioner = null
         val textCondTime = System.currentTimeMillis() - textCondStart
         Log.i(TAG, "Text conditioned in ${textCondTime}ms")
         trackMemory()
@@ -289,7 +324,7 @@ class PocketTtsEngine(private val context: Context) {
             longArrayOf(1, 1, audio.size.toLong())
         )
 
-        val result = mimiEncoder.run(mapOf("audio" to audioTensor))
+        val result = mimiEncoder!!.run(mapOf("audio" to audioTensor))
         val outputTensor = result.valueAt(0) as OnnxTensor
 
         // Output shape: [1, T', 1024]
@@ -316,7 +351,7 @@ class PocketTtsEngine(private val context: Context) {
             longArrayOf(1, tokenIds.size.toLong())
         )
 
-        val result = textConditioner.run(mapOf("token_ids" to tokenTensor))
+        val result = textConditioner!!.run(mapOf("token_ids" to tokenTensor))
         val outputTensor = result.valueAt(0) as OnnxTensor
 
         val shape = outputTensor.info.shape
@@ -762,8 +797,10 @@ class PocketTtsEngine(private val context: Context) {
     }
 
     fun release() {
-        if (this::textConditioner.isInitialized) textConditioner.close()
-        if (this::mimiEncoder.isInitialized) mimiEncoder.close()
+        textConditioner?.close()
+        textConditioner = null
+        mimiEncoder?.close()
+        mimiEncoder = null
         if (this::flowLmMain.isInitialized) flowLmMain.close()
         if (this::flowLmFlow.isInitialized) flowLmFlow.close()
         if (this::mimiDecoder.isInitialized) mimiDecoder.close()

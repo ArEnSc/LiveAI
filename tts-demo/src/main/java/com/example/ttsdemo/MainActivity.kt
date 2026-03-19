@@ -151,11 +151,28 @@ private fun ReadyContent(
         ) {
             Text(if (uiState.isPlaying) "Stop" else "Play")
         }
+
+        Button(
+            onClick = { onEvent(TtsDemoUiEvent.SaveWav) },
+            enabled = uiState.hasAudio && !uiState.isGenerating,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("Save")
+        }
     }
 
     if (uiState.isGenerating) {
         Spacer(modifier = Modifier.height(8.dp))
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+    }
+
+    uiState.savedFilePath?.let { path ->
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Saved: $path",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
     }
 
     Spacer(modifier = Modifier.height(12.dp))

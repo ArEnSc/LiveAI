@@ -6,7 +6,12 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Environment
 import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +31,7 @@ sealed interface TtsDemoUiState {
         val metrics: PocketTtsEngine.PerformanceMetrics? = null,
         val hasAudio: Boolean = false,
         val isPlaying: Boolean = false,
+        val savedFilePath: String? = null,
         val systemMemoryMb: Float = 0f,
         val appMemoryMb: Float = 0f
     ) : TtsDemoUiState
@@ -37,6 +43,7 @@ sealed interface TtsDemoUiEvent {
     data object Generate : TtsDemoUiEvent
     data object PlayAudio : TtsDemoUiEvent
     data object StopAudio : TtsDemoUiEvent
+    data object SaveWav : TtsDemoUiEvent
     data class LsdStepsChanged(val steps: Int) : TtsDemoUiEvent
     data class TemperatureChanged(val temp: Float) : TtsDemoUiEvent
 }
@@ -66,6 +73,7 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
             is TtsDemoUiEvent.Generate -> generate()
             is TtsDemoUiEvent.PlayAudio -> playAudio()
             is TtsDemoUiEvent.StopAudio -> stopAudio()
+            is TtsDemoUiEvent.SaveWav -> saveWav()
             is TtsDemoUiEvent.LsdStepsChanged -> {
                 engine?.lsdSteps = event.steps
             }
@@ -208,9 +216,9 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
                     if (current is TtsDemoUiState.Ready) current.copy(isPlaying = true) else current
                 }
 
-                // Sanitize audio: replace NaN/Inf and clamp to [-1.0, 1.0]
-                val audio = sanitizeAudio(rawAudio)
-                if (audio.isEmpty()) {
+                // Sanitize and convert to 16-bit PCM
+                val floatAudio = sanitizeAudio(rawAudio)
+                if (floatAudio.isEmpty()) {
                     Log.w(TAG, "No valid audio samples to play")
                     _uiState.update { current ->
                         if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
@@ -218,24 +226,14 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
                     return@launch
                 }
 
-                val bufferSize = AudioTrack.getMinBufferSize(
-                    PocketTtsEngine.SAMPLE_RATE,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_FLOAT
-                )
-
-                if (bufferSize <= 0) {
-                    Log.e(TAG, "Invalid buffer size from getMinBufferSize: $bufferSize")
-                    _uiState.update { current ->
-                        if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
-                    }
-                    return@launch
+                // Convert float [-1.0, 1.0] to short [-32768, 32767]
+                val pcm16 = ShortArray(floatAudio.size) { i ->
+                    (floatAudio[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
                 }
 
-                // Use at least the min buffer size, but allow larger for smoother playback
-                val actualBufferSize = maxOf(bufferSize, audio.size * Float.SIZE_BYTES)
+                val bufferSizeBytes = pcm16.size * Short.SIZE_BYTES
 
-                audioTrack = AudioTrack.Builder()
+                val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -244,30 +242,45 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
                     )
                     .setAudioFormat(
                         AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(PocketTtsEngine.SAMPLE_RATE)
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                             .build()
                     )
-                    .setBufferSizeInBytes(actualBufferSize)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setBufferSizeInBytes(bufferSizeBytes)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
                     .build()
 
-                audioTrack?.play()
-                val written = audioTrack?.write(audio, 0, audio.size, AudioTrack.WRITE_BLOCKING) ?: 0
-                Log.i(TAG, "AudioTrack wrote $written / ${audio.size} samples")
+                audioTrack = track
+
+                val written = track.write(pcm16, 0, pcm16.size)
+                Log.i(TAG, "AudioTrack wrote $written / ${pcm16.size} samples (${bufferSizeBytes} bytes)")
 
                 if (written < 0) {
                     Log.e(TAG, "AudioTrack write error: $written")
+                    _uiState.update { current ->
+                        if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
+                    }
+                    return@launch
                 }
 
-                audioTrack?.stop()
-                audioTrack?.release()
-                audioTrack = null
+                // Use notification marker to detect playback completion
+                track.notificationMarkerPosition = pcm16.size
+                track.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
+                    override fun onMarkerReached(t: AudioTrack?) {
+                        Log.i(TAG, "Playback complete")
+                        t?.stop()
+                        t?.release()
+                        if (audioTrack === t) audioTrack = null
+                        _uiState.update { current ->
+                            if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
+                        }
+                    }
+                    override fun onPeriodicNotification(t: AudioTrack?) {}
+                })
 
-                _uiState.update { current ->
-                    if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
-                }
+                track.play()
+                Log.i(TAG, "AudioTrack playing: state=${track.playState}, sampleRate=${track.sampleRate}")
             } catch (e: Exception) {
                 Log.e(TAG, "Playback failed", e)
                 _uiState.update { current ->
@@ -278,8 +291,7 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Sanitize audio samples: replace NaN/Inf with 0, normalize if peak > 1.0,
-     * and clamp to [-1.0, 1.0].
+     * Sanitize audio samples: replace NaN/Inf with 0, normalize if peak > 1.0.
      */
     private fun sanitizeAudio(audio: FloatArray): FloatArray {
         val sanitized = FloatArray(audio.size)
@@ -320,6 +332,79 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
         audioTrack = null
         _uiState.update { current ->
             if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
+        }
+    }
+
+    private fun saveWav() {
+        val rawAudio = generatedAudio ?: return
+        val audio = sanitizeAudio(rawAudio)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS
+                )
+                val timestamp = System.currentTimeMillis()
+                val file = File(downloadsDir, "tts_output_$timestamp.wav")
+
+                writeWav(file, audio, PocketTtsEngine.SAMPLE_RATE)
+
+                Log.i(TAG, "Saved WAV to ${file.absolutePath}")
+                _uiState.update { current ->
+                    if (current is TtsDemoUiState.Ready) {
+                        current.copy(savedFilePath = file.absolutePath)
+                    } else current
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save WAV", e)
+            }
+        }
+    }
+
+    private fun writeWav(file: File, samples: FloatArray, sampleRate: Int) {
+        val numChannels = 1
+        val bitsPerSample = 16
+        val byteRate = sampleRate * numChannels * bitsPerSample / 8
+        val blockAlign = numChannels * bitsPerSample / 8
+        val dataSize = samples.size * blockAlign
+
+        FileOutputStream(file).use { fos ->
+            val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+
+            // RIFF header
+            header.put("RIFF".toByteArray())
+            header.putInt(36 + dataSize)
+            header.put("WAVE".toByteArray())
+
+            // fmt chunk
+            header.put("fmt ".toByteArray())
+            header.putInt(16)               // chunk size
+            header.putShort(1)              // PCM format
+            header.putShort(numChannels.toShort())
+            header.putInt(sampleRate)
+            header.putInt(byteRate)
+            header.putShort(blockAlign.toShort())
+            header.putShort(bitsPerSample.toShort())
+
+            // data chunk
+            header.put("data".toByteArray())
+            header.putInt(dataSize)
+
+            fos.write(header.array())
+
+            // Write samples as 16-bit PCM
+            val buf = ByteBuffer.allocate(4096).order(ByteOrder.LITTLE_ENDIAN)
+            for (sample in samples) {
+                val s = (sample * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                buf.putShort(s)
+                if (buf.position() == buf.capacity()) {
+                    fos.write(buf.array(), 0, buf.position())
+                    buf.clear()
+                }
+            }
+            if (buf.position() > 0) {
+                fos.write(buf.array(), 0, buf.position())
+            }
         }
     }
 
