@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 rootProject.name = "LiveAI"
 include(":app")
 include(":framework")
+include(":tts-demo")

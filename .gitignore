@@ -25,3 +25,8 @@ local.properties
 
 # Assets
 /assets/
+
+# Large model/audio assets (too large for git)
+*.onnx
+*.model
+*.wav
