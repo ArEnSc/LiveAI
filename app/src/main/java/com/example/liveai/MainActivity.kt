@@ -1,19 +1,15 @@
 package com.example.liveai
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
 
@@ -21,15 +17,10 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "LiveAI"
-        private const val OVERLAY_PERMISSION_REQUEST = 1001
     }
 
-    private val requestAudioPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        // Start regardless — AudioVolumeSource handles missing permission gracefully
-        launchOverlayService()
-    }
+    private var btnOverlayPreview: Button? = null
+    private var btnToggleOverlay: Button? = null
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@registerForActivityResult
@@ -60,23 +51,20 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         Log.d(TAG, "MainActivity created")
 
-        val btnOverlayPreview = findViewById<Button>(R.id.btnOverlayPreview)
-        btnOverlayPreview.setOnClickListener {
+        btnOverlayPreview = findViewById<Button>(R.id.btnOverlayPreview)
+        btnOverlayPreview?.setOnClickListener {
             Log.d(TAG, "Overlay preview clicked")
+            disableOverlayButtons()
             startActivity(Intent(this, WallpaperSetupActivity::class.java).apply {
                 putExtra(WallpaperSetupActivity.EXTRA_MODE, WallpaperSetupActivity.MODE_OVERLAY)
             })
         }
 
-        val btnToggleOverlay = findViewById<Button>(R.id.btnToggleOverlay)
-        btnToggleOverlay.setOnClickListener {
-            Log.d(TAG, "Button clicked. canDrawOverlays=${Settings.canDrawOverlays(this)}")
-            if (!Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Requesting overlay permission...", Toast.LENGTH_SHORT).show()
-                requestOverlayPermission()
-                return@setOnClickListener
-            }
-            ensureAudioThenStartOverlay()
+        btnToggleOverlay = findViewById<Button>(R.id.btnToggleOverlay)
+        btnToggleOverlay?.setOnClickListener {
+            Log.d(TAG, "Start overlay clicked")
+            disableOverlayButtons()
+            launchOverlayService()
         }
 
         val btnPickBackground = findViewById<Button>(R.id.btnPickBackground)
@@ -89,53 +77,35 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Set wallpaper clicked — opening setup")
             startActivity(Intent(this, WallpaperSetupActivity::class.java))
         }
-    }
 
-    private fun requestOverlayPermission() {
-        Log.d(TAG, "Requesting overlay permission")
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName")
-        )
-        startActivityForResult(intent, OVERLAY_PERMISSION_REQUEST)
-    }
-
-    @Deprecated("Use ActivityResultLauncher")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        Log.d(TAG, "onActivityResult requestCode=$requestCode canDrawOverlays=${Settings.canDrawOverlays(this)}")
-        if (requestCode == OVERLAY_PERMISSION_REQUEST) {
-            if (Settings.canDrawOverlays(this)) {
-                ensureAudioThenStartOverlay()
-            } else {
-                Toast.makeText(this, "Overlay permission denied", Toast.LENGTH_SHORT).show()
-            }
+        findViewById<Button>(R.id.btnPermissions).setOnClickListener {
+            startActivity(Intent(this, PermissionsActivity::class.java))
         }
     }
 
-    /**
-     * Single entry point: checks RECORD_AUDIO, requests if needed, then starts service.
-     * Always goes through this before startForegroundService.
-     */
-    private fun ensureAudioThenStartOverlay() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
-        } else {
-            launchOverlayService()
-        }
+    override fun onResume() {
+        super.onResume()
+        enableOverlayButtons()
+    }
+
+    private fun disableOverlayButtons() {
+        btnOverlayPreview?.isEnabled = false
+        btnToggleOverlay?.isEnabled = false
+    }
+
+    private fun enableOverlayButtons() {
+        btnOverlayPreview?.isEnabled = true
+        btnToggleOverlay?.isEnabled = true
     }
 
     private fun launchOverlayService() {
         Log.d(TAG, "Launching overlay service")
         try {
-            // Stop any existing zombie service first
-            stopService(Intent(this, OverlayService::class.java))
-
-            val intent = Intent(this, OverlayService::class.java)
-            startForegroundService(intent)
-            Toast.makeText(this, "Overlay started!", Toast.LENGTH_SHORT).show()
+            OverlayService.requestRestart(this) {
+                val intent = Intent(this, OverlayService::class.java)
+                startForegroundService(intent)
+                Toast.makeText(this, "Overlay started!", Toast.LENGTH_SHORT).show()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start service", e)
             Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()

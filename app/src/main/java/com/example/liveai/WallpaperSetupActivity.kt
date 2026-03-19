@@ -1,11 +1,9 @@
 package com.example.liveai
 
-import android.Manifest
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -29,14 +27,15 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.liveai.audio.AudioDrivenMotion
 import com.example.liveai.audio.AudioMotionConfig
 import com.example.liveai.audio.AudioVolumeSource
+import com.example.liveai.live2d.CubismLifecycleManager
 import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.LAppTextureManager
+import com.example.liveai.live2d.Live2DSession
+import com.example.liveai.live2d.Live2DSessionFactory
 import com.example.liveai.live2d.PostProcessFilter
 import com.live2d.sdk.cubism.framework.CubismFramework
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -58,18 +57,12 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     private var setupMode = MODE_WALLPAPER
 
-    private val requestAudioPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        // Start regardless of grant — service handles missing permission gracefully
-        launchOverlayService()
-    }
-
     private var glSurfaceView: GLSurfaceView? = null
     private var live2DManager: LAppLive2DManager? = null
     private val postProcess = PostProcessFilter()
     private var audioVolumeSource: AudioVolumeSource? = null
     private var audioDrivenMotion: AudioDrivenMotion? = null
+    private var session: Live2DSession? = null
 
     private var modelScale = 1.0f
     private var offsetX = 0.0f
@@ -107,34 +100,23 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         val root = FrameLayout(this)
 
-        // Init Cubism
-        LAppPal.setup(this)
-        val option = CubismFramework.Option()
-        option.logFunction = LAppPal.PrintLogFunction()
-        option.loggingLevel = LAppDefine.cubismLoggingLevel
-        CubismFramework.cleanUp()
-        CubismFramework.startUp(option)
-        LAppPal.updateTime()
+        // Stop overlay service if entering overlay preview mode (avoid singleton conflict)
+        if (setupMode == MODE_OVERLAY && OverlayService.isRunning) {
+            stopService(Intent(this, OverlayService::class.java))
+        }
 
-        // Start mic for preview
-        audioVolumeSource = AudioVolumeSource(this)
-        audioVolumeSource?.start()
+        // Init Cubism via ref-counted manager
+        CubismLifecycleManager.acquire(this)
 
-        val textureManager = LAppTextureManager(this)
-        live2DManager = LAppLive2DManager(textureManager)
+        // Create session (mic + manager + audio motion)
+        session = Live2DSessionFactory.create(this)
+        audioVolumeSource = session?.audioSource
+        live2DManager = session?.manager
+        audioDrivenMotion = session?.audioMotion
+
         live2DManager?.setFitToScreen(true)
         live2DManager?.setModelScale(modelScale)
         live2DManager?.setModelOffset(offsetX, offsetY)
-
-        audioDrivenMotion = AudioDrivenMotion(
-            audioVolumeSource,
-            AudioMotionConfig(
-                enabled = audioMotionEnabled,
-                intensity = audioMotionIntensity,
-                speed = audioMotionSpeed
-            )
-        )
-        live2DManager?.setAudioDrivenMotion(audioDrivenMotion)
 
         val renderer = SetupRenderer()
 
@@ -558,13 +540,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         Log.d(TAG, "Settings saved: mode=$setupMode scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
 
         if (setupMode == MODE_OVERLAY) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
-            } else {
-                launchOverlayService()
-            }
+            launchOverlayService()
         } else {
             // Launch wallpaper picker
             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
@@ -607,9 +583,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        audioVolumeSource?.stop()
-        live2DManager?.releaseModel()
-        CubismFramework.dispose()
+        session?.let { Live2DSessionFactory.destroy(it) }
+        session = null
+        CubismLifecycleManager.release()
     }
 
     inner class SetupRenderer : GLSurfaceView.Renderer {

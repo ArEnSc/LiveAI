@@ -20,13 +20,17 @@
         android:theme="@style/Theme.LiveAI">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".PermissionsActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <service
             android:name=".OverlayService"

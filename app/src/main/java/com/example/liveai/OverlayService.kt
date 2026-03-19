@@ -19,15 +19,10 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import com.example.liveai.audio.AudioDrivenMotion
-import com.example.liveai.audio.AudioMotionConfig
-import com.example.liveai.audio.AudioVolumeSource
-import com.example.liveai.live2d.LAppDefine
-import com.example.liveai.live2d.LAppLive2DManager
-import com.example.liveai.live2d.LAppPal
-import com.example.liveai.live2d.LAppTextureManager
+import com.example.liveai.live2d.CubismLifecycleManager
 import com.example.liveai.live2d.Live2DRenderer
-import com.live2d.sdk.cubism.framework.CubismFramework
+import com.example.liveai.live2d.Live2DSession
+import com.example.liveai.live2d.Live2DSessionFactory
 
 class OverlayService : Service() {
 
@@ -38,28 +33,49 @@ class OverlayService : Service() {
         private const val MIN_SIZE_DP = 100
         private const val MAX_SIZE_DP = 800
         private const val BORDER_FADE_DELAY_MS = 1000L
+
+        @Volatile
+        var isRunning = false
+            private set
+
+        private var pendingRestart: (() -> Unit)? = null
+
+        /**
+         * Safely restart the overlay service. If already running, waits for
+         * onDestroy to complete before invoking [onReady] to start the new one.
+         */
+        fun requestRestart(context: Context, onReady: () -> Unit) {
+            if (isRunning) {
+                Log.d(TAG, "requestRestart: stopping existing service first")
+                pendingRestart = onReady
+                context.stopService(Intent(context, OverlayService::class.java))
+            } else {
+                onReady()
+            }
+        }
     }
 
     private lateinit var windowManager: WindowManager
     private var containerView: FrameLayout? = null
     private var glSurfaceView: GLSurfaceView? = null
     private var borderView: View? = null
-    private var live2DManager: LAppLive2DManager? = null
     private var live2DRenderer: Live2DRenderer? = null
-    private var audioVolumeSource: AudioVolumeSource? = null
+    private var session: Live2DSession? = null
     private var overlayWidth = 0
     private var overlayHeight = 0
     private var modelAspect = 1.0f
     private var overlayParams: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
-    private val hideBorderRunnable = Runnable { borderView?.animate()?.alpha(0f)?.setDuration(300)?.start() }
+    private val hideBorderRunnable = Runnable {
+        borderView?.animate()?.alpha(0f)?.setDuration(300)?.start()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (live2DRenderer != null) {
             applyFilterSettings()
-            Log.d(TAG, "Filters updated: sat=${live2DRenderer?.postProcess?.isSaturationEnabled} outline=${live2DRenderer?.postProcess?.isOutlineEnabled}")
+            Log.d(TAG, "Filters reloaded")
         }
         return START_STICKY
     }
@@ -67,11 +83,12 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "OverlayService onCreate")
+        isRunning = true
         try {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, buildNotification())
 
-            initCubism()
+            CubismLifecycleManager.acquire(this)
 
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
             addOverlayView()
@@ -80,19 +97,6 @@ class OverlayService : Service() {
             Log.e(TAG, "Failed in onCreate", e)
             stopSelf()
         }
-    }
-
-    private fun initCubism() {
-        LAppPal.setup(this)
-
-        val option = CubismFramework.Option()
-        option.logFunction = LAppPal.PrintLogFunction()
-        option.loggingLevel = LAppDefine.cubismLoggingLevel
-
-        CubismFramework.cleanUp()
-        CubismFramework.startUp(option)
-
-        LAppPal.updateTime()
     }
 
     private fun createNotificationChannel() {
@@ -118,37 +122,18 @@ class OverlayService : Service() {
         overlayWidth = (300 * dp).toInt()
         overlayHeight = (300 * dp).toInt()
 
-        // Start mic and audio-driven motion
-        audioVolumeSource = AudioVolumeSource(this)
-        audioVolumeSource?.testMode = true  // TODO: remove after testing
-        audioVolumeSource?.start()
-
-        val textureManager = LAppTextureManager(this)
-        live2DManager = LAppLive2DManager(textureManager)
-
-        val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
-        val audioMotion = AudioDrivenMotion(
-            audioVolumeSource,
-            AudioMotionConfig(
-                enabled = prefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true),
-                intensity = prefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f),
-                speed = prefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
-            )
-        )
-        live2DManager?.setAudioDrivenMotion(audioMotion)
+        session = Live2DSessionFactory.create(this, testAudio = true) // TODO: set false for real mic
 
         live2DRenderer = Live2DRenderer(
-            live2DManager!!,
+            session!!.manager,
             "Alice/",
             "Alice Cross Tensor.model3.json"
         )
 
-        // Resize overlay to match model aspect ratio after load
         live2DRenderer?.setOnModelLoadedListener { canvasWidth, canvasHeight ->
             modelAspect = canvasWidth / canvasHeight
             handler.post {
                 val params = overlayParams ?: return@post
-                // Keep current width, adjust height to match model
                 overlayHeight = (overlayWidth / modelAspect).toInt()
                 params.width = overlayWidth
                 params.height = overlayHeight
@@ -171,7 +156,6 @@ class OverlayService : Service() {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
-        // Border view — hidden by default, shown during resize
         borderView = View(this).apply {
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
@@ -308,13 +292,28 @@ class OverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "OverlayService onDestroy")
-        audioVolumeSource?.stop()
         handler.removeCallbacks(hideBorderRunnable)
+
         containerView?.let {
             glSurfaceView?.onPause()
             windowManager.removeView(it)
         }
-        live2DManager?.releaseModel()
-        CubismFramework.dispose()
+        containerView = null
+        glSurfaceView = null
+        borderView = null
+        live2DRenderer = null
+
+        session?.let { Live2DSessionFactory.destroy(it) }
+        session = null
+
+        CubismLifecycleManager.release()
+
+        isRunning = false
+
+        // If a restart was pending, invoke it on the main thread
+        pendingRestart?.let { restart ->
+            pendingRestart = null
+            handler.post(restart)
+        }
     }
 }
