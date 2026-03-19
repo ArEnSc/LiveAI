@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.widget.ProgressBar
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
@@ -15,6 +16,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.View
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.FrameLayout
@@ -63,6 +65,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioVolumeSource: AudioVolumeSource? = null
     private var audioDrivenMotion: AudioDrivenMotion? = null
     private var session: Live2DSession? = null
+    private var loadingOverlay: LinearLayout? = null
 
     private var modelScale = 1.0f
     private var offsetX = 0.0f
@@ -129,6 +132,34 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
 
         root.addView(glSurfaceView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // Loading overlay — shown until model loads
+        val dp = resources.displayMetrics.density
+        loadingOverlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.rgb(30, 30, 30))
+
+            val spinner = ProgressBar(this@WallpaperSetupActivity).apply {
+                isIndeterminate = true
+            }
+            addView(spinner, LinearLayout.LayoutParams(
+                (48 * dp).toInt(), (48 * dp).toInt()
+            ).apply { gravity = Gravity.CENTER_HORIZONTAL })
+
+            val label = TextView(this@WallpaperSetupActivity).apply {
+                text = "Loading model..."
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding(0, (16 * dp).toInt(), 0, 0)
+            }
+            addView(label)
+        }
+        root.addView(loadingOverlay, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
@@ -563,11 +594,17 @@ class WallpaperSetupActivity : AppCompatActivity() {
     }
 
     private fun launchOverlayService() {
-        // Stop any existing zombie service first
-        stopService(Intent(this, OverlayService::class.java))
+        // Clean up our own session first so we release our Cubism ref
+        // before the overlay service tries to acquire one
+        glSurfaceView?.onPause()
+        session?.let { Live2DSessionFactory.destroy(it) }
+        session = null
+        CubismLifecycleManager.release()
 
-        val intent = Intent(this, OverlayService::class.java)
-        startForegroundService(intent)
+        OverlayService.requestRestart(this) {
+            val intent = Intent(this, OverlayService::class.java)
+            startForegroundService(intent)
+        }
         finish()
     }
 
@@ -583,9 +620,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        session?.let { Live2DSessionFactory.destroy(it) }
-        session = null
-        CubismLifecycleManager.release()
+        if (session != null) {
+            session?.let { Live2DSessionFactory.destroy(it) }
+            session = null
+            CubismLifecycleManager.release()
+        }
     }
 
     inner class SetupRenderer : GLSurfaceView.Renderer {
@@ -618,6 +657,15 @@ class WallpaperSetupActivity : AppCompatActivity() {
             if (!modelLoaded) {
                 live2DManager?.loadModel("Alice/", "Alice Cross Tensor.model3.json")
                 modelLoaded = true
+
+                // Hide loading overlay on the UI thread
+                loadingOverlay?.post {
+                    loadingOverlay?.animate()
+                        ?.alpha(0f)
+                        ?.setDuration(300)
+                        ?.withEndAction { loadingOverlay?.visibility = View.GONE }
+                        ?.start()
+                }
             }
         }
 
