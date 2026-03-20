@@ -355,9 +355,6 @@ class Live2DWallpaperService : WallpaperService() {
                 // Hold the read lock while calling onUpdate so that
                 // forceReinitialize (which takes the write lock) blocks
                 // until this frame finishes — preventing shader corruption.
-                // Hold the read lock while calling onUpdate so that
-                // forceReinitialize (which takes the write lock) blocks
-                // until this frame finishes — preventing shader corruption.
                 val readLock = CubismLifecycleManager.frameworkLock.readLock()
                 if (!readLock.tryLock()) return  // forceReinitialize in progress, skip frame
 
@@ -377,6 +374,11 @@ class Live2DWallpaperService : WallpaperService() {
                         GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
                         live2DManager?.onUpdate()
                     }
+                } catch (e: Exception) {
+                    // CubismIdManager can be null if the framework is mid-teardown
+                    // on another thread despite our lock. Stop drawing until re-setup.
+                    Log.w(TAG, "[$engineId] onUpdate failed (framework stale?), stopping draw", e)
+                    glReady = false
                 } finally {
                     readLock.unlock()
                 }
