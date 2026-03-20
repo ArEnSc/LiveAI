@@ -64,6 +64,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioVolumeSource: AudioVolumeSource? = null
     private var audioDrivenMotion: AudioDrivenMotion? = null
     private var session: Live2DSession? = null
+    private var cubismGeneration = 0L
     private var loadingOverlay: LinearLayout? = null
 
     private var modelScale = 1.0f
@@ -612,9 +613,19 @@ class WallpaperSetupActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (session != null) {
-            session?.let { Live2DSessionFactory.destroy(it) }
+            // If another consumer (wallpaper engine) already took over the
+            // framework via forceReinitialize, our generation is stale.
+            // Only release if we still own the framework.
+            val weOwnFramework = CubismLifecycleManager.generation == cubismGeneration
+            try {
+                session?.let { Live2DSessionFactory.destroy(it) }
+            } catch (e: Exception) {
+                Log.w(TAG, "onDestroy: session destroy failed (framework already taken over?)", e)
+            }
             session = null
-            CubismLifecycleManager.release()
+            if (weOwnFramework) {
+                CubismLifecycleManager.release()
+            }
         }
     }
 
@@ -637,7 +648,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             // Force full reinit — a wallpaper engine may still hold Cubism
             // initialized on its EGL context. This GL context is different,
             // so shaders must be recreated here.
-            CubismLifecycleManager.forceReinitialize(this@WallpaperSetupActivity)
+            cubismGeneration = CubismLifecycleManager.forceReinitialize(this@WallpaperSetupActivity)
 
             // Create session on the GL thread AFTER framework init so that
             // the texture manager and model loading happen on the correct

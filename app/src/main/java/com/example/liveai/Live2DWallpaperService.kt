@@ -134,6 +134,21 @@ class Live2DWallpaperService : WallpaperService() {
             this.visible = visible
             logState("onVisibilityChanged($visible)")
             if (visible) {
+                // If another consumer (e.g. SetupActivity) took over Cubism,
+                // our GL resources are stale. Re-setup everything on our EGL
+                // context so the wallpaper resumes rendering.
+                if (CubismLifecycleManager.generation != cubismGeneration) {
+                    Log.d(TAG, "[$engineId] Generation stale (ours=$cubismGeneration, current=${CubismLifecycleManager.generation}) — re-initializing")
+                    setupEverything(surfaceHolder)
+                    if (glReady && surfaceWidth > 0 && surfaceHeight > 0 && makeCurrent()) {
+                        GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
+                        live2DManager?.setWindowSize(surfaceWidth, surfaceHeight)
+                        postProcess.resize(surfaceWidth, surfaceHeight)
+                        if (!modelLoaded) {
+                            loadModel()
+                        }
+                    }
+                }
                 ensureDrawLoop()
             } else {
                 handler.removeCallbacks(drawRunnable)
@@ -239,7 +254,13 @@ class Live2DWallpaperService : WallpaperService() {
         private fun tearDown() {
             Log.d(TAG, "[$engineId] tearDown START session=${session != null} cubismAcq=$cubismAcquired")
             if (session != null) {
-                session?.let { Live2DSessionFactory.destroy(it) }
+                try {
+                    session?.let { Live2DSessionFactory.destroy(it) }
+                } catch (e: Exception) {
+                    // Framework may have been torn down by another consumer's
+                    // forceReinitialize — releaseModel can NPE on stale state.
+                    Log.w(TAG, "[$engineId] tearDown: session destroy failed (framework stale?)", e)
+                }
                 session = null
             }
             live2DManager = null
@@ -247,7 +268,11 @@ class Live2DWallpaperService : WallpaperService() {
             glReady = false
 
             if (cubismAcquired) {
-                CubismLifecycleManager.release()
+                try {
+                    CubismLifecycleManager.release()
+                } catch (e: Exception) {
+                    Log.w(TAG, "[$engineId] tearDown: release failed", e)
+                }
                 cubismAcquired = false
             }
 
@@ -327,18 +352,33 @@ class Live2DWallpaperService : WallpaperService() {
                 GLES20.glDisable(GLES20.GL_BLEND)
                 drawBackground()
 
-                // Draw Live2D model on top with optional post-processing
-                val useFilters = postProcess.isAnyFilterEnabled
-                if (useFilters) {
-                    postProcess.beginCapture()
-                    GLES20.glEnable(GLES20.GL_BLEND)
-                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                    live2DManager?.onUpdate()
-                    postProcess.endCaptureAndApply()
-                } else {
-                    GLES20.glEnable(GLES20.GL_BLEND)
-                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                    live2DManager?.onUpdate()
+                // Hold the read lock while calling onUpdate so that
+                // forceReinitialize (which takes the write lock) blocks
+                // until this frame finishes — preventing shader corruption.
+                // Hold the read lock while calling onUpdate so that
+                // forceReinitialize (which takes the write lock) blocks
+                // until this frame finishes — preventing shader corruption.
+                val readLock = CubismLifecycleManager.frameworkLock.readLock()
+                if (!readLock.tryLock()) return  // forceReinitialize in progress, skip frame
+
+                try {
+                    // Re-check generation inside the lock
+                    if (CubismLifecycleManager.generation != cubismGeneration) return
+
+                    val useFilters = postProcess.isAnyFilterEnabled
+                    if (useFilters) {
+                        postProcess.beginCapture()
+                        GLES20.glEnable(GLES20.GL_BLEND)
+                        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                        live2DManager?.onUpdate()
+                        postProcess.endCaptureAndApply()
+                    } else {
+                        GLES20.glEnable(GLES20.GL_BLEND)
+                        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                        live2DManager?.onUpdate()
+                    }
+                } finally {
+                    readLock.unlock()
                 }
             }
 
