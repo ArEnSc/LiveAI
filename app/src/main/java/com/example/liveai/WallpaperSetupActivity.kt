@@ -573,6 +573,13 @@ class WallpaperSetupActivity : AppCompatActivity() {
         if (setupMode == MODE_OVERLAY) {
             launchOverlayService()
         } else {
+            // Clean up our session so the wallpaper service gets a fresh
+            // CubismFramework — the singleton can't be shared across GL contexts.
+            glSurfaceView?.onPause()
+            session?.let { Live2DSessionFactory.destroy(it) }
+            session = null
+            CubismLifecycleManager.release()
+
             // Launch wallpaper picker
             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
                 putExtra(
