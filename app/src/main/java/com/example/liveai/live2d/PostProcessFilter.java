@@ -127,10 +127,9 @@ public class PostProcessFilter {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glViewport(0, 0, fboWidth, fboHeight);
 
-        // Clear the screen before drawing filtered result
-        GLES20.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-        GLES20.glClearDepthf(1.0f);
+        // Do NOT clear the default framebuffer here — the background was
+        // already drawn before beginCapture(). The filtered model is
+        // composited on top using premultiplied-alpha blending.
 
         int currentTexture = fboTextureId;
 

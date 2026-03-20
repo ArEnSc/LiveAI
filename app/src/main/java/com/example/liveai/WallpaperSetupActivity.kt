@@ -17,15 +17,19 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.example.liveai.audio.AudioDrivenMotion
 import com.example.liveai.audio.AudioMotionConfig
 import com.example.liveai.audio.AudioVolumeSource
@@ -126,7 +130,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         loadingOverlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(30, 30, 30))
+            setBackgroundColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_loading_background))
 
             val spinner = ProgressBar(this@WallpaperSetupActivity).apply {
                 isIndeterminate = true
@@ -137,7 +141,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
             val label = TextView(this@WallpaperSetupActivity).apply {
                 text = "Loading model..."
-                setTextColor(Color.WHITE)
+                setTextColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.text_on_panel))
                 textSize = 16f
                 gravity = Gravity.CENTER
                 setPadding(0, (16 * dp).toInt(), 0, 0)
@@ -148,6 +152,28 @@ class WallpaperSetupActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
+
+        // Hint text floating above panel
+        val hintLabel = TextView(this).apply {
+            text = "Drag to move  |  Pinch to zoom"
+            setTextColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.text_on_panel_hint))
+            textSize = 12f
+            gravity = Gravity.CENTER
+            val hintBg = GradientDrawable().apply {
+                setColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_hint_background))
+                cornerRadius = 20 * dp
+            }
+            background = hintBg
+            setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
+        }
+        val hintParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = (48 * dp).toInt()
+        }
+        root.addView(hintLabel, hintParams)
 
         // Controls panel
         val controlsPanel = buildControlsPanel()
@@ -165,101 +191,329 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     private fun buildControlsPanel(): LinearLayout {
         val dp = resources.displayMetrics.density
-        val pad = (12 * dp).toInt()
+        val padH = (16 * dp).toInt()
+        val padV = (12 * dp).toInt()
+        // Pull colors from resources to match Theme.LiveAI
+        val accentColor = ContextCompat.getColor(this, R.color.purple_200)
+        val textOnPanel = ContextCompat.getColor(this, R.color.text_on_panel)
+        val dimWhite = ContextCompat.getColor(this, R.color.text_on_panel_dim)
+        val dividerColor = ContextCompat.getColor(this, R.color.panel_divider)
 
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.argb(200, 0, 0, 0))
-            setPadding(pad, pad, pad, (pad * 2))
+        // --- Helper functions ---
+
+        fun makeSliderRow(
+            label: String,
+            initialValue: Float,
+            formatValue: (Float) -> String,
+            min: Float,
+            max: Float,
+            steps: Int,
+            onChange: (Float, TextView) -> Unit
+        ): LinearLayout {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, (2 * dp).toInt(), 0, (2 * dp).toInt())
+            }
+            val lbl = TextView(this).apply {
+                text = label
+                setTextColor(dimWhite)
+                textSize = 13f
+            }
+            row.addView(lbl, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.8f))
+
+            val valueLabel = TextView(this).apply {
+                text = formatValue(initialValue)
+                setTextColor(textOnPanel)
+                textSize = 13f
+                gravity = Gravity.END
+                minWidth = (36 * dp).toInt()
+            }
+
+            val slider = SeekBar(this).apply {
+                this.max = steps
+                progress = ((initialValue - min) / (max - min) * steps).toInt()
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        val value = min + (progress.toFloat() / steps) * (max - min)
+                        valueLabel.text = formatValue(value)
+                        onChange(value, valueLabel)
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+            row.addView(slider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+            row.addView(valueLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.4f))
+            return row
         }
 
-        // Saturation row
+        fun makePillButton(
+            label: String,
+            fillColor: Int,
+            textColor: Int,
+            onClick: () -> Unit
+        ): Button {
+            return Button(this).apply {
+                text = label
+                setTextColor(textColor)
+                textSize = 13f
+                isAllCaps = false
+                val shape = GradientDrawable().apply {
+                    cornerRadius = 24 * dp
+                    setColor(fillColor)
+                    if (fillColor == Color.TRANSPARENT) {
+                        setStroke((1.5f * dp).toInt(), ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_btn_outline))
+                    }
+                }
+                background = shape
+                setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
+                minHeight = 0
+                minimumHeight = 0
+                stateListAnimator = null
+                setOnClickListener { onClick() }
+            }
+        }
+
+        // --- Panel background with rounded top corners ---
+        val panelBg = GradientDrawable().apply {
+            setColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_background))
+            cornerRadii = floatArrayOf(
+                20 * dp, 20 * dp, 20 * dp, 20 * dp,
+                0f, 0f, 0f, 0f
+            )
+        }
+
+        // Outer wrapper (handles background + non-scrolling elements)
+        val outerWrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = panelBg
+        }
+
+        // --- Drag handle ---
+        val handleBar = View(this).apply {
+            val shape = GradientDrawable().apply {
+                setColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_drag_handle))
+                cornerRadius = 3 * dp
+            }
+            background = shape
+        }
+        outerWrapper.addView(handleBar, LinearLayout.LayoutParams((36 * dp).toInt(), (4 * dp).toInt()).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = (10 * dp).toInt()
+            bottomMargin = (6 * dp).toInt()
+        })
+
+        // --- Tab bar ---
+        val tabNames = listOf("Position", "Effects", "Audio")
+        val tabBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(padH, 0, padH, 0)
+        }
+        // Tab indicator line sits below the tab text row
+        val tabIndicatorBar = FrameLayout(this).apply {
+            setPadding(padH, 0, padH, 0)
+        }
+        val tabIndicator = View(this).apply {
+            val shape = GradientDrawable().apply {
+                setColor(accentColor)
+                cornerRadius = 2 * dp
+            }
+            background = shape
+        }
+
+        val tabTextViews = mutableListOf<TextView>()
+        val tabContents = mutableListOf<LinearLayout>()
+
+        fun selectTab(index: Int) {
+            tabContents.forEachIndexed { i, content ->
+                content.visibility = if (i == index) View.VISIBLE else View.GONE
+            }
+            tabTextViews.forEachIndexed { i, tv ->
+                if (i == index) {
+                    tv.setTextColor(textOnPanel)
+                    tv.setTypeface(null, Typeface.BOLD)
+                } else {
+                    tv.setTextColor(dimWhite)
+                    tv.setTypeface(null, Typeface.NORMAL)
+                }
+            }
+            // Animate indicator position
+            val selectedTab = tabTextViews[index]
+            selectedTab.post {
+                val tabWidth = selectedTab.width
+                val tabLeft = selectedTab.left
+                tabIndicator.animate()
+                    .translationX(tabLeft.toFloat())
+                    .setDuration(200)
+                    .start()
+                val lp = tabIndicator.layoutParams
+                if (lp != null) {
+                    lp.width = tabWidth
+                    tabIndicator.layoutParams = lp
+                }
+            }
+        }
+
+        for ((index, name) in tabNames.withIndex()) {
+            val tabText = TextView(this).apply {
+                text = name
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setPadding(0, (8 * dp).toInt(), 0, (8 * dp).toInt())
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { selectTab(index) }
+            }
+            tabTextViews.add(tabText)
+            tabBar.addView(tabText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        outerWrapper.addView(tabBar)
+
+        // Tab indicator
+        tabIndicatorBar.addView(tabIndicator, FrameLayout.LayoutParams(
+            0, (3 * dp).toInt()
+        ))
+        outerWrapper.addView(tabIndicatorBar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (3 * dp).toInt()
+        ))
+
+        // Divider below tabs
+        val tabDivider = View(this).apply {
+            setBackgroundColor(dividerColor)
+        }
+        outerWrapper.addView(tabDivider, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+        ))
+
+        // --- Tab content container (scrollable) ---
+        val contentHost = FrameLayout(this)
+
+        // ===== TAB: Position & Scale =====
+        val positionContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padH, padV, padH, padV)
+        }
+
+        val scaleSlider = makeSliderRow(
+            label = "Scale",
+            initialValue = modelScale,
+            formatValue = { "%.1fx".format(it) },
+            min = 0.5f,
+            max = 10.0f,
+            steps = 950
+        ) { value, _ ->
+            modelScale = value
+            live2DManager?.setModelScale(modelScale)
+        }
+        positionContent.addView(scaleSlider)
+
+        // Center button row
+        val positionBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
+        }
+        val btnCenterH = makePillButton("Center Horizontal", Color.TRANSPARENT, textOnPanel) {
+            offsetX = 0.0f
+            live2DManager?.setModelOffset(offsetX, offsetY)
+        }
+        positionBtnRow.addView(btnCenterH, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(0, 0, (8 * dp).toInt(), 0) })
+
+        val btnCenterV = makePillButton("Center Vertical", Color.TRANSPARENT, textOnPanel) {
+            offsetY = 0.0f
+            live2DManager?.setModelOffset(offsetX, offsetY)
+        }
+        positionBtnRow.addView(btnCenterV)
+        positionContent.addView(positionBtnRow)
+
+        tabContents.add(positionContent)
+        contentHost.addView(positionContent)
+
+        // ===== TAB: Effects =====
+        val effectsContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padH, padV, padH, padV)
+            visibility = View.GONE
+        }
+
+        // Saturation toggle + slider
         val satRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val satSwitch = Switch(this).apply {
             text = "Saturation"
-            setTextColor(Color.WHITE)
+            setTextColor(dimWhite)
+            textSize = 13f
             isChecked = postProcess.isSaturationEnabled
             setOnCheckedChangeListener { _, checked ->
                 postProcess.isSaturationEnabled = checked
             }
         }
         satRow.addView(satSwitch, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        effectsContent.addView(satRow)
 
-        val satLabel = TextView(this).apply {
-            text = "%.1f".format(postProcess.saturationAmount)
-            setTextColor(Color.WHITE)
-            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        val satSlider = makeSliderRow(
+            label = "Amount",
+            initialValue = postProcess.saturationAmount,
+            formatValue = { "%.1f".format(it) },
+            min = 0.0f,
+            max = 3.0f,
+            steps = 300
+        ) { value, _ ->
+            postProcess.saturationAmount = value
         }
+        effectsContent.addView(satSlider)
 
-        val satSlider = SeekBar(this).apply {
-            max = 300
-            progress = (postProcess.saturationAmount * 100).toInt()
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val value = progress / 100f
-                    postProcess.saturationAmount = value
-                    satLabel.text = "%.1f".format(value)
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
-        }
-        satRow.addView(satSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
-        satRow.addView(satLabel)
-        panel.addView(satRow)
+        // Spacer
+        effectsContent.addView(View(this), LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (8 * dp).toInt()
+        ))
 
-        // Outline row
+        // Outline toggle + slider
         val outRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val outSwitch = Switch(this).apply {
             text = "Outline"
-            setTextColor(Color.WHITE)
+            setTextColor(dimWhite)
+            textSize = 13f
             isChecked = postProcess.isOutlineEnabled
             setOnCheckedChangeListener { _, checked ->
                 postProcess.isOutlineEnabled = checked
             }
         }
         outRow.addView(outSwitch, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        effectsContent.addView(outRow)
 
-        val outLabel = TextView(this).apply {
-            text = "%d".format(postProcess.outlineThickness.toInt())
-            setTextColor(Color.WHITE)
-            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        val outSlider = makeSliderRow(
+            label = "Thickness",
+            initialValue = postProcess.outlineThickness,
+            formatValue = { "%d".format(it.toInt()) },
+            min = 0.0f,
+            max = 100.0f,
+            steps = 100
+        ) { value, _ ->
+            postProcess.outlineThickness = value
         }
-
-        val outSlider = SeekBar(this).apply {
-            max = 100
-            progress = postProcess.outlineThickness.toInt()
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val value = progress.toFloat()
-                    postProcess.outlineThickness = value
-                    outLabel.text = "%d".format(progress)
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
-        }
-        outRow.addView(outSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
-        outRow.addView(outLabel)
-        panel.addView(outRow)
+        effectsContent.addView(outSlider)
 
         // Outline color row
         val colorRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, (4 * dp).toInt(), 0, 0)
+            setPadding(0, (6 * dp).toInt(), 0, (4 * dp).toInt())
         }
-
         val colorLabel = TextView(this).apply {
-            text = "Outline Color:"
-            setTextColor(Color.WHITE)
-            setPadding(0, 0, (8 * dp).toInt(), 0)
+            text = "Color"
+            setTextColor(dimWhite)
+            textSize = 13f
+            setPadding(0, 0, (12 * dp).toInt(), 0)
         }
         colorRow.addView(colorLabel)
 
@@ -275,46 +529,53 @@ class WallpaperSetupActivity : AppCompatActivity() {
             ColorPreset("Cyan", Color.CYAN, 0f, 1f, 1f)
         )
 
-        val btnSize = (32 * dp).toInt()
-        val btnMargin = (4 * dp).toInt()
-
+        val colorScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val colorInner = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val btnSize = (28 * dp).toInt()
+        val btnMargin = (5 * dp).toInt()
         for (preset in presets) {
-            val colorBtn = Button(this).apply {
+            val colorBtn = View(this).apply {
                 val shape = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(preset.color)
-                    setStroke((2 * dp).toInt(), Color.WHITE)
+                    setStroke((1.5f * dp).toInt(), ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_btn_outline))
                 }
                 background = shape
                 setOnClickListener {
                     postProcess.setOutlineColor(preset.r, preset.g, preset.b, 1.0f)
                 }
             }
-            val btnParams2 = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+            colorInner.addView(colorBtn, LinearLayout.LayoutParams(btnSize, btnSize).apply {
                 setMargins(btnMargin, 0, btnMargin, 0)
-            }
-            colorRow.addView(colorBtn, btnParams2)
+            })
+        }
+        colorScroll.addView(colorInner)
+        colorRow.addView(colorScroll, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        effectsContent.addView(colorRow)
+
+        tabContents.add(effectsContent)
+        contentHost.addView(effectsContent)
+
+        // ===== TAB: Audio Motion =====
+        val audioContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padH, padV, padH, padV)
+            visibility = View.GONE
         }
 
-        panel.addView(colorRow)
-
-        // --- Audio Motion section ---
-        val audioHeader = TextView(this).apply {
-            text = "Audio Motion"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
-        }
-        panel.addView(audioHeader)
-
-        // Audio motion toggle + volume meter
         val audioRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val audioSwitch = Switch(this).apply {
             text = "Enabled"
-            setTextColor(Color.WHITE)
+            setTextColor(dimWhite)
+            textSize = 13f
             isChecked = audioMotionEnabled
             setOnCheckedChangeListener { _, checked ->
                 audioMotionEnabled = checked
@@ -331,13 +592,13 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         val volumeLabel = TextView(this).apply {
             text = "0%"
-            setTextColor(Color.WHITE)
+            setTextColor(dimWhite)
+            textSize = 12f
             setPadding((8 * dp).toInt(), 0, 0, 0)
         }
         audioRow.addView(volumeLabel)
-        panel.addView(audioRow)
+        audioContent.addView(audioRow)
 
-        // Volume meter updater
         val volumeHandler = android.os.Handler(android.os.Looper.getMainLooper())
         val volumeUpdater = object : Runnable {
             override fun run() {
@@ -349,153 +610,100 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
         volumeHandler.post(volumeUpdater)
 
-        // Intensity slider
-        val intRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val intSlider = makeSliderRow(
+            label = "Intensity",
+            initialValue = audioMotionIntensity,
+            formatValue = { "%.1f".format(it) },
+            min = 0.0f,
+            max = 3.0f,
+            steps = 300
+        ) { value, _ ->
+            audioMotionIntensity = value
+            updateAudioMotionConfig()
         }
-        val intLabel2 = TextView(this).apply {
-            text = "Intensity"
-            setTextColor(Color.WHITE)
-        }
-        intRow.addView(intLabel2, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        audioContent.addView(intSlider)
 
-        val intValue = TextView(this).apply {
-            text = "%.1f".format(audioMotionIntensity)
-            setTextColor(Color.WHITE)
-            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        val spdSlider = makeSliderRow(
+            label = "Speed",
+            initialValue = audioMotionSpeed,
+            formatValue = { "%.1f".format(it) },
+            min = 0.0f,
+            max = 3.0f,
+            steps = 300
+        ) { value, _ ->
+            audioMotionSpeed = value
+            updateAudioMotionConfig()
         }
+        audioContent.addView(spdSlider)
 
-        val intSlider = SeekBar(this).apply {
-            max = 300
-            progress = (audioMotionIntensity * 100).toInt()
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    audioMotionIntensity = progress / 100f
-                    intValue.text = "%.1f".format(audioMotionIntensity)
-                    updateAudioMotionConfig()
+        tabContents.add(audioContent)
+        contentHost.addView(audioContent)
+
+        // Wrap content in ScrollView
+        val scrollView = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(contentHost)
+        }
+        val maxContentHeight = (resources.displayMetrics.heightPixels * 0.30f).toInt()
+        outerWrapper.addView(scrollView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        scrollView.post {
+            if (scrollView.height > maxContentHeight) {
+                scrollView.layoutParams = scrollView.layoutParams.apply {
+                    height = maxContentHeight
                 }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
-        }
-        intRow.addView(intSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
-        intRow.addView(intValue)
-        panel.addView(intRow)
-
-        // Speed slider
-        val spdRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val spdLabel2 = TextView(this).apply {
-            text = "Speed"
-            setTextColor(Color.WHITE)
-        }
-        spdRow.addView(spdLabel2, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        val spdValue = TextView(this).apply {
-            text = "%.1f".format(audioMotionSpeed)
-            setTextColor(Color.WHITE)
-            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+            }
         }
 
-        val spdSlider = SeekBar(this).apply {
-            max = 300
-            progress = (audioMotionSpeed * 100).toInt()
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    audioMotionSpeed = progress / 100f
-                    spdValue.text = "%.1f".format(audioMotionSpeed)
-                    updateAudioMotionConfig()
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
+        // ===== Action buttons (pinned below scroll) =====
+        val btnDivider = View(this).apply {
+            setBackgroundColor(dividerColor)
         }
-        spdRow.addView(spdSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
-        spdRow.addView(spdValue)
-        panel.addView(spdRow)
+        outerWrapper.addView(btnDivider, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+        ))
 
-        // Scale slider
-        val scaleRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val scaleLabel = TextView(this).apply {
-            text = "Scale"
-            setTextColor(Color.WHITE)
-        }
-        scaleRow.addView(scaleLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        val scaleValue = TextView(this).apply {
-            text = "%.1f".format(modelScale)
-            setTextColor(Color.WHITE)
-            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
-        }
-
-        val scaleSlider = SeekBar(this).apply {
-            max = 950  // 0.5 to 10.0 → 50..1000, step by 1
-            progress = ((modelScale - 0.5f) * 100).toInt()
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    modelScale = 0.5f + progress / 100f
-                    scaleValue.text = "%.1f".format(modelScale)
-                    live2DManager?.setModelScale(modelScale)
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
-        }
-        scaleRow.addView(scaleSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
-        scaleRow.addView(scaleValue)
-        panel.addView(scaleRow)
-
-        // Buttons row
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, (8 * dp).toInt(), 0, 0)
+            setPadding(padH, (10 * dp).toInt(), padH, (16 * dp).toInt())
         }
 
-        val btnCenterH = Button(this).apply {
-            text = "Center H"
-            setOnClickListener {
-                offsetX = 0.0f
-                live2DManager?.setModelOffset(offsetX, offsetY)
-            }
+        val btnReset = makePillButton("Reset All", Color.TRANSPARENT, textOnPanel) {
+            modelScale = 1.0f
+            offsetX = 0.0f
+            offsetY = 0.0f
+            live2DManager?.setModelScale(modelScale)
+            live2DManager?.setModelOffset(offsetX, offsetY)
+            postProcess.isSaturationEnabled = false
+            postProcess.isOutlineEnabled = false
+            postProcess.saturationAmount = 1.5f
+            postProcess.outlineThickness = 2f
+            satSwitch.isChecked = false
+            outSwitch.isChecked = false
+            (scaleSlider.getChildAt(1) as? SeekBar)?.progress = 50
+            (satSlider.getChildAt(1) as? SeekBar)?.progress = 150
+            (outSlider.getChildAt(1) as? SeekBar)?.progress = 2
         }
-        btnRow.addView(btnCenterH)
+        btnRow.addView(btnReset, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ).apply { setMargins((4 * dp).toInt(), 0, (4 * dp).toInt(), 0) })
 
-        val btnReset = Button(this).apply {
-            text = "Reset"
-            setOnClickListener {
-                modelScale = 1.0f
-                offsetX = 0.0f
-                offsetY = 0.0f
-                live2DManager?.setModelScale(modelScale)
-                live2DManager?.setModelOffset(offsetX, offsetY)
-                postProcess.isSaturationEnabled = false
-                postProcess.isOutlineEnabled = false
-                postProcess.saturationAmount = 1.5f
-                postProcess.outlineThickness = 2f
-                satSwitch.isChecked = false
-                outSwitch.isChecked = false
-                satSlider.progress = 150
-                outSlider.progress = 2
-                scaleSlider.progress = 50  // 0.5 + 50/100 = 1.0
-            }
+        val applyLabel = if (setupMode == MODE_OVERLAY) "Apply to Overlay" else "Apply Wallpaper"
+        val btnApply = makePillButton(applyLabel, accentColor, textOnPanel) {
+            applySettings()
         }
-        btnRow.addView(btnReset)
+        btnRow.addView(btnApply, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ).apply { setMargins((4 * dp).toInt(), 0, (4 * dp).toInt(), 0) })
 
-        val btnApply = Button(this).apply {
-            text = if (setupMode == MODE_OVERLAY) "Apply to Overlay" else "Apply Wallpaper"
-            setOnClickListener { applySettings() }
-        }
-        btnRow.addView(btnApply)
+        outerWrapper.addView(btnRow)
 
-        panel.addView(btnRow)
-        return panel
+        // Select first tab
+        selectTab(0)
+
+        return outerWrapper
     }
 
     private fun setupTouchHandling() {

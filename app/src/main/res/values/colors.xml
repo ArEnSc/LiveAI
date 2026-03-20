@@ -7,4 +7,17 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Setup panel surface & overlay colors -->
+    <color name="panel_background">#D2121216</color>
+    <color name="panel_loading_background">#FF1E1E1E</color>
+    <color name="panel_divider">#28FFFFFF</color>
+    <color name="panel_drag_handle">#50FFFFFF</color>
+    <color name="panel_hint_background">#8C000000</color>
+    <color name="panel_btn_outline">#78FFFFFF</color>
+
+    <!-- Text colors for dark panels -->
+    <color name="text_on_panel">#FFFFFFFF</color>
+    <color name="text_on_panel_dim">#B4FFFFFF</color>
+    <color name="text_on_panel_hint">#B4FFFFFF</color>
 </resources>
