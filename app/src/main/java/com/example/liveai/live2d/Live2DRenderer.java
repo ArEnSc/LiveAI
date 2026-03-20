@@ -3,8 +3,6 @@ package com.example.liveai.live2d;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 
-import com.live2d.sdk.cubism.framework.CubismFramework;
-
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -57,7 +55,7 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         GLES20.glEnable(GL_BLEND);
         GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-        CubismFramework.initialize();
+        CubismLifecycleManager.INSTANCE.initialize();
 
         postProcess.init();
 

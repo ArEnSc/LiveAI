@@ -37,7 +37,6 @@ import com.example.liveai.live2d.LAppTextureManager
 import com.example.liveai.live2d.Live2DSession
 import com.example.liveai.live2d.Live2DSessionFactory
 import com.example.liveai.live2d.PostProcessFilter
-import com.live2d.sdk.cubism.framework.CubismFramework
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -103,23 +102,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         val root = FrameLayout(this)
 
-        // Stop overlay service if entering overlay preview mode (avoid singleton conflict)
-        if (setupMode == MODE_OVERLAY && OverlayService.isRunning) {
-            stopService(Intent(this, OverlayService::class.java))
-        }
-
-        // Init Cubism via ref-counted manager
-        CubismLifecycleManager.acquire(this)
-
-        // Create session (mic + manager + audio motion)
-        session = Live2DSessionFactory.create(this)
-        audioVolumeSource = session?.audioSource
-        live2DManager = session?.manager
-        audioDrivenMotion = session?.audioMotion
-
-        live2DManager?.setFitToScreen(true)
-        live2DManager?.setModelScale(modelScale)
-        live2DManager?.setModelOffset(offsetX, offsetY)
+        // Session and Cubism init are deferred to the GL thread (onSurfaceCreated)
+        // to avoid EGL context conflicts with a running wallpaper engine.
 
         val renderer = SetupRenderer()
 
@@ -644,12 +628,31 @@ class WallpaperSetupActivity : AppCompatActivity() {
         private var bgTextureHandle = 0
 
         override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
+            Log.d(TAG, "SetupRenderer.onSurfaceCreated — reinitializing Cubism for this GL context")
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
             GLES20.glEnable(GLES20.GL_BLEND)
             GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
-            CubismFramework.initialize()
+            // Force full reinit — a wallpaper engine may still hold Cubism
+            // initialized on its EGL context. This GL context is different,
+            // so shaders must be recreated here.
+            CubismLifecycleManager.forceReinitialize(this@WallpaperSetupActivity)
+
+            // Create session on the GL thread AFTER framework init so that
+            // the texture manager and model loading happen on the correct
+            // EGL context. This prevents the wallpaper engine's draw loop
+            // from recompiling Cubism shaders on its own stale context.
+            session = Live2DSessionFactory.create(this@WallpaperSetupActivity)
+            audioVolumeSource = session?.audioSource
+            live2DManager = session?.manager
+            audioDrivenMotion = session?.audioMotion
+
+            live2DManager?.setFitToScreen(true)
+            live2DManager?.setModelScale(modelScale)
+            live2DManager?.setModelOffset(offsetX, offsetY)
+            Log.d(TAG, "SetupRenderer: session created on GL thread, manager=${live2DManager != null}")
+
             postProcess.init()
 
             loadBackground()
@@ -657,12 +660,17 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
 
         override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
+            Log.d(TAG, "SetupRenderer.onSurfaceChanged ${width}x${height} modelLoaded=$modelLoaded manager=${live2DManager != null}")
             GLES20.glViewport(0, 0, width, height)
             live2DManager?.setWindowSize(width, height)
             postProcess.resize(width, height)
 
             if (!modelLoaded) {
+                Log.d(TAG, "SetupRenderer: loading model...")
                 live2DManager?.loadModel("Alice/", "Alice Cross Tensor.model3.json")
+                val cw = live2DManager?.getCanvasWidth() ?: 0f
+                val ch = live2DManager?.getCanvasHeight() ?: 0f
+                Log.d(TAG, "SetupRenderer: model loaded, canvas=${cw}x${ch}")
                 modelLoaded = true
 
                 // Hide loading overlay on the UI thread
