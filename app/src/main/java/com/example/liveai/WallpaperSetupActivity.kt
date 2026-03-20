@@ -417,12 +417,55 @@ class WallpaperSetupActivity : AppCompatActivity() {
         spdRow.addView(spdValue)
         panel.addView(spdRow)
 
+        // Scale slider
+        val scaleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val scaleLabel = TextView(this).apply {
+            text = "Scale"
+            setTextColor(Color.WHITE)
+        }
+        scaleRow.addView(scaleLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val scaleValue = TextView(this).apply {
+            text = "%.1f".format(modelScale)
+            setTextColor(Color.WHITE)
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+        }
+
+        val scaleSlider = SeekBar(this).apply {
+            max = 950  // 0.5 to 10.0 → 50..1000, step by 1
+            progress = ((modelScale - 0.5f) * 100).toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    modelScale = 0.5f + progress / 100f
+                    scaleValue.text = "%.1f".format(modelScale)
+                    live2DManager?.setModelScale(modelScale)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        scaleRow.addView(scaleSlider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+        scaleRow.addView(scaleValue)
+        panel.addView(scaleRow)
+
         // Buttons row
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(0, (8 * dp).toInt(), 0, 0)
         }
+
+        val btnCenterH = Button(this).apply {
+            text = "Center H"
+            setOnClickListener {
+                offsetX = 0.0f
+                live2DManager?.setModelOffset(offsetX, offsetY)
+            }
+        }
+        btnRow.addView(btnCenterH)
 
         val btnReset = Button(this).apply {
             text = "Reset"
@@ -440,6 +483,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 outSwitch.isChecked = false
                 satSlider.progress = 150
                 outSlider.progress = 2
+                scaleSlider.progress = 50  // 0.5 + 50/100 = 1.0
             }
         }
         btnRow.addView(btnReset)
