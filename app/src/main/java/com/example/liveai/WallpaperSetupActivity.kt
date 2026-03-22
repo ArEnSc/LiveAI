@@ -258,27 +258,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             fillColor: Int,
             textColor: Int,
             onClick: () -> Unit
-        ): Button {
-            return Button(this).apply {
-                text = label
-                setTextColor(textColor)
-                textSize = 13f
-                isAllCaps = false
-                val shape = GradientDrawable().apply {
-                    cornerRadius = 24 * dp
-                    setColor(fillColor)
-                    if (fillColor == Color.TRANSPARENT) {
-                        setStroke((1.5f * dp).toInt(), ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_btn_outline))
-                    }
-                }
-                background = shape
-                setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
-                minHeight = 0
-                minimumHeight = 0
-                stateListAnimator = null
-                setOnClickListener { onClick() }
-            }
-        }
+        ): Button = this@WallpaperSetupActivity.makePillButton(label, fillColor, textColor, dp, onClick)
 
         // --- Panel background with rounded top corners ---
         val panelBg = GradientDrawable().apply {
@@ -858,6 +838,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
     }
 
+    /** The parameter list view (shown by default). */
+    private var paramListView: LinearLayout? = null
+    /** The single-parameter editor view (shown when a param is tapped). */
+    private var paramEditorView: LinearLayout? = null
+
     private fun populateParamsTab(params: List<LAppLive2DManager.ParameterInfo>) {
         val container = paramsContainer ?: return
         container.removeAllViews()
@@ -872,12 +857,29 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
 
         val dp = resources.displayMetrics.density
+        val padH = (16 * dp).toInt()
+        val accentColor = ContextCompat.getColor(this, R.color.purple_200)
+        val textOnPanel = ContextCompat.getColor(this, R.color.text_on_panel)
+        val dimWhite = ContextCompat.getColor(this, R.color.text_on_panel_dim)
+        val dividerColor = ContextCompat.getColor(this, R.color.panel_divider)
 
+        // --- Parameter list view ---
+        val listView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        paramListView = listView
+
+        // --- Editor view (hidden initially) ---
+        val editorView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        paramEditorView = editorView
+
+        // Build list cells
         for (param in params) {
             val range = param.max - param.min
             if (range <= 0f) continue
-
-            val displayName = param.displayName
 
             val hasOverride = paramOverrides.containsKey(param.id)
             val initialValue = if (hasOverride) {
@@ -886,53 +888,251 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 param.defaultValue
             }
 
-            val row = LinearLayout(this).apply {
+            // --- Cell row ---
+            val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, (2 * dp).toInt(), 0, (2 * dp).toInt())
+                setPadding(padH, (12 * dp).toInt(), padH, (12 * dp).toInt())
+                isClickable = true
+                isFocusable = true
             }
 
-            val lbl = TextView(this).apply {
-                text = displayName
-                setTextColor(if (hasOverride) 0xFFFFFFFF.toInt() else 0xFFAAAAAA.toInt())
-                textSize = 11f
+            val nameLabel = TextView(this).apply {
+                text = param.displayName
+                setTextColor(if (hasOverride) textOnPanel else dimWhite)
+                textSize = 13f
+                setTypeface(null, if (hasOverride) Typeface.BOLD else Typeface.NORMAL)
             }
-            row.addView(lbl, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.9f))
+            cell.addView(nameLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-            val valueLabel = TextView(this).apply {
+            val cellValue = TextView(this).apply {
                 text = "%.2f".format(initialValue)
-                setTextColor(0xFFFFFFFF.toInt())
-                textSize = 11f
+                setTextColor(if (hasOverride) accentColor else dimWhite)
+                textSize = 13f
                 gravity = Gravity.END
-                minWidth = (32 * dp).toInt()
+            }
+            cell.addView(cellValue)
+
+            // Chevron
+            val chevron = TextView(this).apply {
+                text = "  \u203A"
+                setTextColor(dimWhite)
+                textSize = 16f
+            }
+            cell.addView(chevron)
+
+            // Divider
+            val divider = View(this).apply { setBackgroundColor(dividerColor) }
+
+            val cellWrapper = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(cell)
+                addView(divider, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+                ))
             }
 
-            val steps = 200
-            val slider = SeekBar(this).apply {
-                max = steps
-                progress = ((initialValue - param.min) / range * steps).toInt()
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                        if (!fromUser) return
-                        val value = param.min + (progress.toFloat() / steps) * range
-                        valueLabel.text = "%.2f".format(value)
-                        lbl.setTextColor(0xFFFFFFFF.toInt())
-                        paramOverrides[param.id] = value
-                        glSurfaceView?.queueEvent {
-                            live2DManager?.setParameterOverride(param.id, value)
-                        }
-                    }
-                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-                })
+            // Tap → open editor for this param
+            cell.setOnClickListener {
+                openParamEditor(
+                    param, initialValue, nameLabel, cellValue,
+                    accentColor, textOnPanel, dimWhite, dividerColor, dp
+                )
             }
-            row.addView(slider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
-            row.addView(valueLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.4f))
 
-            container.addView(row)
+            listView.addView(cellWrapper)
         }
 
+        container.addView(listView)
+        container.addView(editorView)
+
         Log.d(TAG, "Params tab populated with ${params.size} parameters")
+    }
+
+    private fun openParamEditor(
+        param: LAppLive2DManager.ParameterInfo,
+        currentValue: Float,
+        nameLabel: TextView,
+        cellValue: TextView,
+        accentColor: Int,
+        textOnPanel: Int,
+        dimWhite: Int,
+        dividerColor: Int,
+        dp: Float
+    ) {
+        val editor = paramEditorView ?: return
+        val list = paramListView ?: return
+        val range = param.max - param.min
+        val steps = 200
+        val padH = (16 * dp).toInt()
+
+        // Snapshot the value before editing so Cancel can revert
+        val valueBefore = paramOverrides[param.id] ?: param.defaultValue
+
+        editor.removeAllViews()
+
+        // --- Title ---
+        val title = TextView(this).apply {
+            text = param.displayName
+            setTextColor(textOnPanel)
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(padH, (12 * dp).toInt(), padH, (4 * dp).toInt())
+        }
+        editor.addView(title)
+
+        // --- Value display ---
+        val valueDisplay = TextView(this).apply {
+            text = "%.2f".format(currentValue)
+            setTextColor(accentColor)
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(padH, (4 * dp).toInt(), padH, (8 * dp).toInt())
+        }
+        editor.addView(valueDisplay)
+
+        // --- Slider with min/max ---
+        val sliderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(padH, 0, padH, (4 * dp).toInt())
+        }
+
+        val minLabel = TextView(this).apply {
+            text = "%.1f".format(param.min)
+            setTextColor(dimWhite)
+            textSize = 11f
+        }
+        sliderRow.addView(minLabel)
+
+        val slider = SeekBar(this).apply {
+            max = steps
+            progress = ((currentValue - param.min) / range * steps).toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    val value = param.min + (progress.toFloat() / steps) * range
+                    valueDisplay.text = "%.2f".format(value)
+                    paramOverrides[param.id] = value
+                    glSurfaceView?.queueEvent {
+                        live2DManager?.setParameterOverride(param.id, value)
+                    }
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        sliderRow.addView(slider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val maxLabel = TextView(this).apply {
+            text = "%.1f".format(param.max)
+            setTextColor(dimWhite)
+            textSize = 11f
+        }
+        sliderRow.addView(maxLabel)
+
+        editor.addView(sliderRow)
+
+        // --- Divider ---
+        editor.addView(View(this).apply { setBackgroundColor(dividerColor) }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+        ).apply { topMargin = (8 * dp).toInt() })
+
+        // --- Button row: Reset | Cancel | Done ---
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(padH, (10 * dp).toInt(), padH, (8 * dp).toInt())
+        }
+
+        fun closeEditor() {
+            editor.visibility = View.GONE
+            list.visibility = View.VISIBLE
+        }
+
+        val btnReset = makePillButton("Reset", Color.TRANSPARENT, dimWhite, dp) {
+            paramOverrides.remove(param.id)
+            slider.progress = ((param.defaultValue - param.min) / range * steps).toInt()
+            valueDisplay.text = "%.2f".format(param.defaultValue)
+            nameLabel.setTextColor(dimWhite)
+            nameLabel.setTypeface(null, Typeface.NORMAL)
+            cellValue.text = "%.2f".format(param.defaultValue)
+            cellValue.setTextColor(dimWhite)
+            glSurfaceView?.queueEvent {
+                live2DManager?.clearParameterOverride(param.id)
+            }
+            closeEditor()
+        }
+        btnRow.addView(btnReset, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            .apply { setMargins((2 * dp).toInt(), 0, (2 * dp).toInt(), 0) })
+
+        val btnCancel = makePillButton("Cancel", Color.TRANSPARENT, dimWhite, dp) {
+            // Revert to value before editing
+            if (valueBefore == param.defaultValue && !paramOverrides.containsKey(param.id)) {
+                // Was at default, no override existed
+                glSurfaceView?.queueEvent {
+                    live2DManager?.clearParameterOverride(param.id)
+                }
+            } else {
+                paramOverrides[param.id] = valueBefore
+                glSurfaceView?.queueEvent {
+                    live2DManager?.setParameterOverride(param.id, valueBefore)
+                }
+            }
+            cellValue.text = "%.2f".format(valueBefore)
+            closeEditor()
+        }
+        btnRow.addView(btnCancel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            .apply { setMargins((2 * dp).toInt(), 0, (2 * dp).toInt(), 0) })
+
+        val btnDone = makePillButton("Done", accentColor, textOnPanel, dp) {
+            // Keep current value — update the cell to reflect it
+            val finalValue = paramOverrides[param.id]
+            if (finalValue != null) {
+                cellValue.text = "%.2f".format(finalValue)
+                cellValue.setTextColor(accentColor)
+                nameLabel.setTextColor(textOnPanel)
+                nameLabel.setTypeface(null, Typeface.BOLD)
+            }
+            closeEditor()
+        }
+        btnRow.addView(btnDone, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            .apply { setMargins((2 * dp).toInt(), 0, (2 * dp).toInt(), 0) })
+
+        editor.addView(btnRow)
+
+        // Show editor, hide list
+        list.visibility = View.GONE
+        editor.visibility = View.VISIBLE
+    }
+
+    private fun makePillButton(
+        label: String,
+        fillColor: Int,
+        textColor: Int,
+        dp: Float,
+        onClick: () -> Unit
+    ): Button {
+        return Button(this).apply {
+            text = label
+            setTextColor(textColor)
+            textSize = 13f
+            isAllCaps = false
+            val shape = GradientDrawable().apply {
+                cornerRadius = 24 * dp
+                setColor(fillColor)
+                if (fillColor == Color.TRANSPARENT) {
+                    setStroke((1.5f * dp).toInt(), ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_btn_outline))
+                }
+            }
+            background = shape
+            setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
+            minHeight = 0
+            minimumHeight = 0
+            stateListAnimator = null
+            setOnClickListener { onClick() }
+        }
     }
 
     private fun updateAudioMotionConfig() {
