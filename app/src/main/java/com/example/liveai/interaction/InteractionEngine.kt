@@ -10,8 +10,7 @@ import kotlin.math.sqrt
  */
 object InteractionEngine {
 
-    /** Base sensitivity for touch (pixels → normalized -1..1). */
-    const val BASE_SENSITIVITY = 0.09f
+    /** Default sensitivity lives on InteractionZone now. */
 
     /** Intensity thresholds (based on parameter-value magnitude). */
     private const val GENTLE_THRESHOLD = 5f
@@ -34,7 +33,8 @@ object InteractionEngine {
     fun computeBindingValues(
         bindings: List<ParameterBinding>,
         deltaX: Float,
-        deltaY: Float
+        deltaY: Float,
+        sensitivity: Float = InteractionZone.DEFAULT_SENSITIVITY
     ): Map<String, Float> {
         val result = mutableMapOf<String, Float>()
         for (binding in bindings) {
@@ -42,7 +42,7 @@ object InteractionEngine {
                 DragAxis.HORIZONTAL -> deltaX
                 DragAxis.VERTICAL -> deltaY
             }
-            val normalized = clamp(drag * BASE_SENSITIVITY, -1f, 1f)
+            val normalized = clamp(drag * sensitivity, -1f, 1f)
             val value = clamp(
                 normalized * binding.strength * binding.maxValue,
                 -binding.maxValue,

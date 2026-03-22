@@ -218,6 +218,43 @@ class ZoneEditorController(
             setMargins(0, (4 * dp).toInt(), 0, (12 * dp).toInt())
         })
 
+        // Sensitivity slider
+        val sensitivityPercent = (zone.sensitivity * 10000f).toInt() // 0.001→10, 0.01→100, 0.05→500
+        val sensitivityLabel = TextView(context).apply {
+            text = "Sensitivity: $sensitivityPercent%"
+            setTextColor(textOnPanel)
+            textSize = 13f
+            setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
+        }
+        detail.addView(sensitivityLabel)
+
+        val sensitivityHint = TextView(context).apply {
+            text = "How far you need to drag before the parameter reaches full deflection."
+            setTextColor(dimWhite)
+            textSize = 11f
+            setPadding(0, 0, 0, (4 * dp).toInt())
+        }
+        detail.addView(sensitivityHint)
+
+        val sensitivitySlider = SeekBar(context).apply {
+            max = 500 // maps to 0.001..0.05 (10..500 as %)
+            progress = sensitivityPercent.coerceIn(10, 500)
+            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val clamped = progress.coerceAtLeast(10)
+                    sensitivityLabel.text = "Sensitivity: $clamped%"
+                    if (fromUser) {
+                        val newSensitivity = clamped / 10000f
+                        zones[editingZoneIndex] = zones[editingZoneIndex].copy(sensitivity = newSensitivity)
+                    }
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
+        detail.addView(sensitivitySlider)
+
         // Divider
         detail.addView(makeDivider())
 

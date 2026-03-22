@@ -95,7 +95,8 @@ class TouchInteractionHandler(
             val values = InteractionEngine.computeBindingValues(
                 state.zone.bindings,
                 x - state.startX,
-                y - state.startY
+                y - state.startY,
+                state.zone.sensitivity
             )
             state.currentValues = values
             state.lastX = x

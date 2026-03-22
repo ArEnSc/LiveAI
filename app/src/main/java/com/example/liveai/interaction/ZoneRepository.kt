@@ -131,6 +131,7 @@ object ZoneRepository {
                 })
             }
         })
+        put("sensitivity", zone.sensitivity.toDouble())
         put("spring", JSONObject().apply {
             put("durationMs", zone.spring.durationMs)
             put("decay", zone.spring.decay.toDouble())
@@ -174,6 +175,7 @@ object ZoneRepository {
                     maxValue = b.getDouble("maxValue").toFloat()
                 )
             },
+            sensitivity = obj.optDouble("sensitivity", InteractionZone.DEFAULT_SENSITIVITY.toDouble()).toFloat(),
             spring = SpringConfig(
                 durationMs = springObj.getLong("durationMs"),
                 decay = springObj.getDouble("decay").toFloat(),

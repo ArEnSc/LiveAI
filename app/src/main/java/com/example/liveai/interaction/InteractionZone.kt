@@ -20,8 +20,13 @@ data class InteractionZone(
     val color: Int,
     val rect: RectF,
     val bindings: List<ParameterBinding>,
-    val spring: SpringConfig
-)
+    val spring: SpringConfig,
+    val sensitivity: Float = DEFAULT_SENSITIVITY
+) {
+    companion object {
+        const val DEFAULT_SENSITIVITY = 0.01f
+    }
+}
 
 /**
  * Maps a drag axis to a Live2D parameter with a strength multiplier.
