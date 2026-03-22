@@ -204,13 +204,24 @@ public class LAppModel extends CubismUserModel {
             physics.evaluate(model, deltaTimeSeconds);
         }
 
+        // Re-apply parameter overrides AFTER physics so that user-set
+        // values for physics-output params (hair, bust, skirt, etc.)
+        // are not overwritten by the physics simulation.
+        if (!parameterOverrides.isEmpty()) {
+            CubismIdManager idMgr = CubismFramework.getIdManager();
+            for (Map.Entry<String, Float> entry : parameterOverrides.entrySet()) {
+                CubismId id = idMgr.getId(entry.getKey());
+                model.setParameterValue(id, entry.getValue());
+            }
+        }
+
         // Re-apply interaction params AFTER physics so that physics-output
         // params (bust, hair, skirt, etc.) can be directly controlled by
         // interaction zones without physics overwriting them.
         if (!interactionParams.isEmpty()) {
-            CubismIdManager idMgr = CubismFramework.getIdManager();
+            CubismIdManager idMgr2 = CubismFramework.getIdManager();
             for (Map.Entry<String, Float> entry : interactionParams.entrySet()) {
-                CubismId id = idMgr.getId(entry.getKey());
+                CubismId id = idMgr2.getId(entry.getKey());
                 model.setParameterValue(id, entry.getValue());
             }
         }
