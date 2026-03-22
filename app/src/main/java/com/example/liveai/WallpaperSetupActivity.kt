@@ -640,7 +640,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         zoneEditorController = ZoneEditorController(
             context = this,
             container = zoneContainer,
-            manager = live2DManager,
+            managerProvider = { live2DManager },
             overlayHost = rootLayout,
             onPanelVisibility = { visible ->
                 controlsPanel?.visibility = if (visible) View.VISIBLE else View.GONE

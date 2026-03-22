@@ -204,6 +204,17 @@ public class LAppModel extends CubismUserModel {
             physics.evaluate(model, deltaTimeSeconds);
         }
 
+        // Re-apply interaction params AFTER physics so that physics-output
+        // params (bust, hair, skirt, etc.) can be directly controlled by
+        // interaction zones without physics overwriting them.
+        if (!interactionParams.isEmpty()) {
+            CubismIdManager idMgr = CubismFramework.getIdManager();
+            for (Map.Entry<String, Float> entry : interactionParams.entrySet()) {
+                CubismId id = idMgr.getId(entry.getKey());
+                model.setParameterValue(id, entry.getValue());
+            }
+        }
+
         if (pose != null) {
             pose.updateParameters(model, deltaTimeSeconds);
         }

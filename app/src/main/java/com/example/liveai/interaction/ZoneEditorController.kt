@@ -27,7 +27,7 @@ import java.util.UUID
 class ZoneEditorController(
     private val context: Context,
     private val container: LinearLayout,
-    private val manager: LAppLive2DManager?,
+    private val managerProvider: () -> LAppLive2DManager?,
     private val overlayHost: FrameLayout?,
     private val onPanelVisibility: (visible: Boolean) -> Unit,
     private val onZonesSaved: (List<InteractionZone>) -> Unit
@@ -482,7 +482,7 @@ class ZoneEditorController(
     // --- Parameter Picker ---
 
     private fun openParameterPicker() {
-        val params = manager?.parameterList ?: return
+        val params = managerProvider()?.parameterList ?: return
 
         container.removeAllViews()
 
