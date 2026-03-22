@@ -150,6 +150,17 @@ public class LAppModel extends CubismUserModel {
             breath.updateParameters(model, deltaTimeSeconds);
         }
 
+        // Apply user parameter overrides BEFORE physics so that overridden
+        // input params (AngleX, BodyAngleX, etc.) feed into the physics
+        // simulation and produce hair/breast/skirt movement.
+        if (!parameterOverrides.isEmpty()) {
+            CubismIdManager idManager = CubismFramework.getIdManager();
+            for (Map.Entry<String, Float> entry : parameterOverrides.entrySet()) {
+                CubismId id = idManager.getId(entry.getKey());
+                model.setParameterValue(id, entry.getValue());
+            }
+        }
+
         if (physics != null) {
             physics.evaluate(model, deltaTimeSeconds);
         }
@@ -160,16 +171,6 @@ public class LAppModel extends CubismUserModel {
 
         if (audioDrivenMotion != null) {
             audioDrivenMotion.update(model, deltaTimeSeconds);
-        }
-
-        // Apply user parameter overrides as the final step before model update.
-        // This ensures user-set values take priority over all other systems.
-        if (!parameterOverrides.isEmpty()) {
-            CubismIdManager idManager = CubismFramework.getIdManager();
-            for (Map.Entry<String, Float> entry : parameterOverrides.entrySet()) {
-                CubismId id = idManager.getId(entry.getKey());
-                model.setParameterValue(id, entry.getValue());
-            }
         }
 
         model.update();
