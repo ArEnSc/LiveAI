@@ -206,6 +206,16 @@ class Live2DWallpaperService : WallpaperService() {
                 val offY = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_Y, 0.0f)
                 live2DManager?.setModelScale(scale)
                 live2DManager?.setModelOffset(offX, offY)
+
+                // Load saved parameter overrides
+                val paramPrefs = getSharedPreferences(WallpaperSetupActivity.PARAM_OVERRIDES_PREFS, MODE_PRIVATE)
+                val overrides = paramPrefs.all
+                    .filterValues { it is Float }
+                    .mapValues { it.value as Float }
+                if (overrides.isNotEmpty()) {
+                    live2DManager?.setAllParameterOverrides(overrides)
+                    Log.d(TAG, "[$engineId] Loaded ${overrides.size} parameter overrides")
+                }
                 Log.d(TAG, "[$engineId] Settings: scale=$scale offX=$offX offY=$offY")
 
                 // Load filter settings

@@ -1,7 +1,19 @@
 package com.example.liveai.live2d;
 
+import android.util.Log;
+
 import com.example.liveai.audio.AudioDrivenMotion;
+import com.live2d.sdk.cubism.framework.id.CubismId;
 import com.live2d.sdk.cubism.framework.math.CubismMatrix44;
+import com.live2d.sdk.cubism.framework.model.CubismModel;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class LAppLive2DManager {
 
@@ -54,6 +66,46 @@ public class LAppLive2DManager {
 
         if (audioDrivenMotion != null) {
             model.setAudioDrivenMotion(audioDrivenMotion);
+        }
+        if (!parameterOverrides.isEmpty()) {
+            model.setParameterOverrides(parameterOverrides);
+        }
+
+        loadCdiDisplayNames(dir, modelJsonName);
+    }
+
+    private void loadCdiDisplayNames(String dir, String modelJsonName) {
+        cdiDisplayNames.clear();
+        try {
+            // Parse model3.json to find the DisplayInfo (CDI) file path
+            byte[] modelJson = LAppPal.loadFileAsBytes(dir + modelJsonName);
+            if (modelJson == null || modelJson.length == 0) return;
+
+            JSONObject root = new JSONObject(new String(modelJson));
+            JSONObject fileRefs = root.optJSONObject("FileReferences");
+            if (fileRefs == null) return;
+
+            String cdiPath = fileRefs.optString("DisplayInfo", "");
+            if (cdiPath.isEmpty()) return;
+
+            byte[] cdiBytes = LAppPal.loadFileAsBytes(dir + cdiPath);
+            if (cdiBytes == null || cdiBytes.length == 0) return;
+
+            JSONObject cdi = new JSONObject(new String(cdiBytes));
+            JSONArray params = cdi.optJSONArray("Parameters");
+            if (params == null) return;
+
+            for (int i = 0; i < params.length(); i++) {
+                JSONObject p = params.getJSONObject(i);
+                String id = p.optString("Id", "");
+                String name = p.optString("Name", "");
+                if (!id.isEmpty() && !name.isEmpty() && !name.equals("------------")) {
+                    cdiDisplayNames.put(id, name);
+                }
+            }
+            Log.d("LAppLive2DManager", "Loaded " + cdiDisplayNames.size() + " CDI display names");
+        } catch (Exception e) {
+            Log.w("LAppLive2DManager", "Failed to load CDI display names", e);
         }
     }
 
@@ -109,6 +161,89 @@ public class LAppLive2DManager {
         if (model == null || model.getModel() == null) return 0;
         return model.getModel().getCanvasHeight();
     }
+
+    // --- Parameter access ---
+
+    /** Holds info about a single model parameter. */
+    public static class ParameterInfo {
+        public final int index;
+        public final String id;
+        public final String displayName;
+        public final float min;
+        public final float max;
+        public final float defaultValue;
+
+        ParameterInfo(int index, String id, String displayName, float min, float max, float defaultValue) {
+            this.index = index;
+            this.id = id;
+            this.displayName = displayName;
+            this.min = min;
+            this.max = max;
+            this.defaultValue = defaultValue;
+        }
+    }
+
+    /** Returns info for all parameters on the loaded model. */
+    public List<ParameterInfo> getParameterList() {
+        List<ParameterInfo> result = new ArrayList<>();
+        if (model == null || model.getModel() == null) return result;
+
+        CubismModel m = model.getModel();
+        int count = m.getParameterCount();
+        for (int i = 0; i < count; i++) {
+            CubismId cid = m.getParameterId(i);
+            String id = cid.getString();
+            String displayName = cdiDisplayNames.getOrDefault(id, id);
+            result.add(new ParameterInfo(
+                i,
+                id,
+                displayName,
+                m.getParameterMinimumValue(i),
+                m.getParameterMaximumValue(i),
+                m.getParameterDefaultValue(i)
+            ));
+        }
+        return result;
+    }
+
+    /** Get the current value of a parameter by index. */
+    public float getParameterValue(int index) {
+        if (model == null || model.getModel() == null) return 0f;
+        return model.getModel().getParameterValue(index);
+    }
+
+    /** Set a parameter override that will be applied each frame after all other systems. */
+    public void setParameterOverride(String paramId, float value) {
+        parameterOverrides.put(paramId, value);
+        if (model != null) {
+            model.setParameterOverrides(parameterOverrides);
+        }
+    }
+
+    /** Remove a parameter override, letting the model's own systems control it. */
+    public void clearParameterOverride(String paramId) {
+        parameterOverrides.remove(paramId);
+        if (model != null) {
+            model.setParameterOverrides(parameterOverrides);
+        }
+    }
+
+    /** Set all parameter overrides at once (e.g. from saved preferences). */
+    public void setAllParameterOverrides(Map<String, Float> overrides) {
+        parameterOverrides.clear();
+        parameterOverrides.putAll(overrides);
+        if (model != null) {
+            model.setParameterOverrides(parameterOverrides);
+        }
+    }
+
+    /** Get the current parameter overrides map. */
+    public Map<String, Float> getParameterOverrides() {
+        return new HashMap<>(parameterOverrides);
+    }
+
+    private final Map<String, Float> parameterOverrides = new HashMap<>();
+    private final Map<String, String> cdiDisplayNames = new HashMap<>();
 
     public void onDrag(float x, float y) {
         if (model != null) {

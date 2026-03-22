@@ -53,6 +53,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         const val EXTRA_MODE = "setup_mode"
         const val MODE_WALLPAPER = "wallpaper"
         const val MODE_OVERLAY = "overlay"
+        const val PARAM_OVERRIDES_PREFS = "param_overrides"
     }
 
     private var setupMode = MODE_WALLPAPER
@@ -64,6 +65,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioDrivenMotion: AudioDrivenMotion? = null
     private var session: Live2DSession? = null
     private var loadingOverlay: LinearLayout? = null
+
+    private var paramOverrides = mutableMapOf<String, Float>()
+    private var paramsContainer: LinearLayout? = null
 
     private var modelScale = 1.0f
     private var offsetX = 0.0f
@@ -98,6 +102,13 @@ class WallpaperSetupActivity : AppCompatActivity() {
         audioMotionEnabled = filterPrefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true)
         audioMotionIntensity = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f)
         audioMotionSpeed = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
+
+        // Load saved parameter overrides
+        val paramPrefs = getSharedPreferences(PARAM_OVERRIDES_PREFS, Context.MODE_PRIVATE)
+        paramOverrides = paramPrefs.all
+            .filterValues { it is Float }
+            .mapValues { it.value as Float }
+            .toMutableMap()
 
         val root = FrameLayout(this)
 
@@ -299,7 +310,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         })
 
         // --- Tab bar ---
-        val tabNames = listOf("Position", "Effects", "Audio")
+        val tabNames = listOf("Position", "Effects", "Audio", "Params")
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(padH, 0, padH, 0)
@@ -633,6 +644,24 @@ class WallpaperSetupActivity : AppCompatActivity() {
         tabContents.add(audioContent)
         contentHost.addView(audioContent)
 
+        // ===== TAB: Parameters =====
+        val paramsContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padH, padV, padH, padV)
+            visibility = View.GONE
+        }
+
+        val paramsLoadingLabel = TextView(this).apply {
+            text = "Loading model parameters..."
+            setTextColor(dimWhite)
+            textSize = 13f
+        }
+        paramsContent.addView(paramsLoadingLabel)
+        paramsContainer = paramsContent
+
+        tabContents.add(paramsContent)
+        contentHost.addView(paramsContent)
+
         // Wrap content in ScrollView
         val scrollView = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
@@ -799,7 +828,15 @@ class WallpaperSetupActivity : AppCompatActivity() {
             .putFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, audioMotionSpeed)
             .apply()
 
-        Log.d(TAG, "Settings saved: mode=$setupMode scale=$modelScale sat=${postProcess.isSaturationEnabled} outline=${postProcess.isOutlineEnabled}")
+        // Save parameter overrides
+        val paramEditor = getSharedPreferences(PARAM_OVERRIDES_PREFS, Context.MODE_PRIVATE).edit()
+        paramEditor.clear()
+        for ((key, value) in paramOverrides) {
+            paramEditor.putFloat(key, value)
+        }
+        paramEditor.apply()
+
+        Log.d(TAG, "Settings saved: mode=$setupMode scale=$modelScale params=${paramOverrides.size} overrides")
 
         if (setupMode == MODE_OVERLAY) {
             launchOverlayService()
@@ -819,6 +856,83 @@ class WallpaperSetupActivity : AppCompatActivity() {
             startActivity(intent)
             finish()
         }
+    }
+
+    private fun populateParamsTab(params: List<LAppLive2DManager.ParameterInfo>) {
+        val container = paramsContainer ?: return
+        container.removeAllViews()
+
+        if (params.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = "No parameters found"
+                setTextColor(0xFFAAAAAA.toInt())
+                textSize = 13f
+            })
+            return
+        }
+
+        val dp = resources.displayMetrics.density
+
+        for (param in params) {
+            val range = param.max - param.min
+            if (range <= 0f) continue
+
+            val displayName = param.displayName
+
+            val hasOverride = paramOverrides.containsKey(param.id)
+            val initialValue = if (hasOverride) {
+                paramOverrides[param.id] ?: param.defaultValue
+            } else {
+                param.defaultValue
+            }
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, (2 * dp).toInt(), 0, (2 * dp).toInt())
+            }
+
+            val lbl = TextView(this).apply {
+                text = displayName
+                setTextColor(if (hasOverride) 0xFFFFFFFF.toInt() else 0xFFAAAAAA.toInt())
+                textSize = 11f
+            }
+            row.addView(lbl, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.9f))
+
+            val valueLabel = TextView(this).apply {
+                text = "%.2f".format(initialValue)
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 11f
+                gravity = Gravity.END
+                minWidth = (32 * dp).toInt()
+            }
+
+            val steps = 200
+            val slider = SeekBar(this).apply {
+                max = steps
+                progress = ((initialValue - param.min) / range * steps).toInt()
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (!fromUser) return
+                        val value = param.min + (progress.toFloat() / steps) * range
+                        valueLabel.text = "%.2f".format(value)
+                        lbl.setTextColor(0xFFFFFFFF.toInt())
+                        paramOverrides[param.id] = value
+                        glSurfaceView?.queueEvent {
+                            live2DManager?.setParameterOverride(param.id, value)
+                        }
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+            row.addView(slider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f))
+            row.addView(valueLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.4f))
+
+            container.addView(row)
+        }
+
+        Log.d(TAG, "Params tab populated with ${params.size} parameters")
     }
 
     private fun updateAudioMotionConfig() {
@@ -907,6 +1021,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
             live2DManager?.setFitToScreen(true)
             live2DManager?.setModelScale(modelScale)
             live2DManager?.setModelOffset(offsetX, offsetY)
+            if (paramOverrides.isNotEmpty()) {
+                live2DManager?.setAllParameterOverrides(paramOverrides)
+            }
             Log.d(TAG, "SetupRenderer: session created on GL thread, manager=${live2DManager != null}")
 
             postProcess.init()
@@ -927,13 +1044,15 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 Log.d(TAG, "SetupRenderer: model loaded, canvas=${cw}x${ch}")
                 modelLoaded = true
 
-                // Hide loading overlay on the UI thread
+                // Hide loading overlay and populate params tab on the UI thread
+                val paramList = live2DManager?.getParameterList() ?: emptyList()
                 loadingOverlay?.post {
                     loadingOverlay?.animate()
                         ?.alpha(0f)
                         ?.setDuration(300)
                         ?.withEndAction { loadingOverlay?.visibility = View.GONE }
                         ?.start()
+                    populateParamsTab(paramList)
                 }
             }
         }

@@ -34,6 +34,7 @@ public class LAppModel extends CubismUserModel {
     private float userTimeSeconds;
 
     private AudioDrivenMotion audioDrivenMotion;
+    private Map<String, Float> parameterOverrides = new HashMap<>();
 
     private final List<CubismId> eyeBlinkIds = new ArrayList<>();
     private final List<CubismId> lipSyncIds = new ArrayList<>();
@@ -92,6 +93,10 @@ public class LAppModel extends CubismUserModel {
 
     public void setAudioDrivenMotion(AudioDrivenMotion motion) {
         this.audioDrivenMotion = motion;
+    }
+
+    public void setParameterOverrides(Map<String, Float> overrides) {
+        this.parameterOverrides = new HashMap<>(overrides);
     }
 
     public void deleteModel() {
@@ -155,6 +160,16 @@ public class LAppModel extends CubismUserModel {
 
         if (audioDrivenMotion != null) {
             audioDrivenMotion.update(model, deltaTimeSeconds);
+        }
+
+        // Apply user parameter overrides as the final step before model update.
+        // This ensures user-set values take priority over all other systems.
+        if (!parameterOverrides.isEmpty()) {
+            CubismIdManager idManager = CubismFramework.getIdManager();
+            for (Map.Entry<String, Float> entry : parameterOverrides.entrySet()) {
+                CubismId id = idManager.getId(entry.getKey());
+                model.setParameterValue(id, entry.getValue());
+            }
         }
 
         model.update();
