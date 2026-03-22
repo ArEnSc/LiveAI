@@ -25,6 +25,7 @@ import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
 import com.example.liveai.live2d.toFloatBuffer
 import com.example.liveai.interaction.TouchInteractionHandler
+import com.example.liveai.interaction.ZoneRepository
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid
 
 class Live2DWallpaperService : WallpaperService() {
@@ -99,34 +100,7 @@ class Live2DWallpaperService : WallpaperService() {
 
         override fun onTouchEvent(event: MotionEvent?) {
             event ?: return
-
-            val prefs = getSharedPreferences(
-                WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE
-            )
-            val touchEnabled = prefs.getBoolean(
-                WallpaperSetupActivity.KEY_TOUCH_ENABLED, true
-            )
-            if (!touchEnabled) return
-
-            // Try interaction handler first (head pat / body pull)
-            val consumed = touchHandler?.onTouchEvent(event) == true
-            if (consumed) return
-
-            // Fallback: original behavior — tap triggers random motion
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                val forcePriority = prefs.getBoolean(
-                    WallpaperSetupActivity.KEY_TOUCH_FORCE_PRIORITY, true
-                )
-                val priority = if (forcePriority) {
-                    LAppDefine.Priority.FORCE.priority
-                } else {
-                    LAppDefine.Priority.NORMAL.priority
-                }
-                live2DManager?.startRandomMotion(
-                    LAppDefine.MotionGroup.IDLE.id,
-                    priority
-                )
-            }
+            touchHandler?.onTouchEvent(event)
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder?) {
@@ -248,7 +222,8 @@ class Live2DWallpaperService : WallpaperService() {
 
             val mgr = live2DManager
             touchHandler = if (mgr != null) {
-                TouchInteractionHandler(mgr, this@Live2DWallpaperService)
+                val zones = ZoneRepository.loadZones(this@Live2DWallpaperService)
+                TouchInteractionHandler(mgr, zones)
             } else null
 
             Log.d(TAG, "[$engineId] Session created, manager=${mgr != null}")

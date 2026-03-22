@@ -10,12 +10,14 @@ import com.live2d.sdk.cubism.framework.model.CubismModel;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import com.example.liveai.interaction.InteractionTarget;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class LAppLive2DManager {
+public class LAppLive2DManager implements InteractionTarget {
 
     private LAppModel model;
     private final LAppTextureManager textureManager;
@@ -257,45 +259,25 @@ public class LAppLive2DManager {
         }
     }
 
-    // --- Touch interaction ---
+    // --- InteractionTarget ---
 
-    /** Set head interaction angles from touch gesture. */
-    public void setHeadInteractionAngles(float angleX, float angleY) {
+    @Override
+    public void setInteractionParams(java.util.Map<String, Float> params) {
         if (model != null) {
-            model.setHeadInteractionAngles(angleX, angleY);
+            model.setInteractionParams(params);
         }
     }
 
-    /** Clear head interaction — normal behavior resumes. */
-    public void clearHeadInteraction() {
+    @Override
+    public void clearInteractionParams(java.util.Set<String> paramIds) {
         if (model != null) {
-            model.clearHeadInteraction();
+            model.clearInteractionParams(paramIds);
         }
     }
 
-    /** Set body interaction angles from touch gesture. */
-    public void setBodyInteractionAngles(float angleX, float angleY, float angleZ) {
-        if (model != null) {
-            model.setBodyInteractionAngles(angleX, angleY, angleZ);
-        }
-    }
+    @Override
+    public int getScreenWidth() { return windowWidth; }
 
-    /** Clear body interaction — normal behavior resumes. */
-    public void clearBodyInteraction() {
-        if (model != null) {
-            model.clearBodyInteraction();
-        }
-    }
-
-    /** Get model offset X (needed for hit zone computation). */
-    public float getModelOffsetX() { return modelOffsetX; }
-
-    /** Get model offset Y (needed for hit zone computation). */
-    public float getModelOffsetY() { return modelOffsetY; }
-
-    /** Get window width. */
-    public int getWindowWidth() { return windowWidth; }
-
-    /** Get window height. */
-    public int getWindowHeight() { return windowHeight; }
+    @Override
+    public int getScreenHeight() { return windowHeight; }
 }

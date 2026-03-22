@@ -43,6 +43,7 @@ import com.example.liveai.live2d.Live2DSessionFactory
 import com.example.liveai.live2d.GlStateGuard
 import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
+import com.example.liveai.interaction.ZoneEditorController
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -58,8 +59,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
         const val MODE_WALLPAPER = "wallpaper"
         const val MODE_OVERLAY = "overlay"
         const val PARAM_OVERRIDES_PREFS = "param_overrides"
-        const val KEY_TOUCH_ENABLED = "touch_enabled"
-        const val KEY_TOUCH_FORCE_PRIORITY = "touch_force_priority"
     }
 
     private var setupMode = MODE_WALLPAPER
@@ -82,7 +81,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioMotionIntensity = 1.0f
     private var audioMotionSpeed = 1.0f
     private var rootLayout: FrameLayout? = null
-    private var hitZoneOverlay: com.example.liveai.interaction.HitZoneOverlayView? = null
+    private var zoneEditorController: ZoneEditorController? = null
+    private var controlsPanel: LinearLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -181,7 +181,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
         root.addView(hintLabel, hintParams)
 
         // Controls panel
-        val controlsPanel = buildControlsPanel()
+        controlsPanel = buildControlsPanel()
+        val controlsPanel = controlsPanel!!
         val panelParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
@@ -629,108 +630,24 @@ class WallpaperSetupActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        val touchEnabledSwitch = Switch(this).apply {
-            text = "React to touch"
-            setTextColor(textOnPanel)
-            textSize = 14f
-            isChecked = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(KEY_TOUCH_ENABLED, true)
-            setOnCheckedChangeListener { _, checked ->
-                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                    .edit()
-                    .putBoolean(KEY_TOUCH_ENABLED, checked)
-                    .apply()
-            }
+        // --- Zone Editor ---
+
+        val zoneContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
-        interactContent.addView(touchEnabledSwitch)
+        interactContent.addView(zoneContainer)
 
-        val touchHintLabel = TextView(this).apply {
-            text = "When enabled, tapping the wallpaper triggers a motion on the character."
-            setTextColor(dimWhite)
-            textSize = 12f
-            setPadding(0, (4 * dp).toInt(), 0, (12 * dp).toInt())
-        }
-        interactContent.addView(touchHintLabel)
-
-        val motionPriorityLabel = TextView(this).apply {
-            text = "Touch priority"
-            setTextColor(textOnPanel)
-            textSize = 14f
-        }
-        interactContent.addView(motionPriorityLabel)
-
-        val priorityHintLabel = TextView(this).apply {
-            text = "Force: always interrupts current motion. Normal: waits for current motion to finish."
-            setTextColor(dimWhite)
-            textSize = 12f
-            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-        }
-        interactContent.addView(priorityHintLabel)
-
-        val savedForce = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .getBoolean(KEY_TOUCH_FORCE_PRIORITY, true)
-
-        val priorityBtnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        val btnNormal = makePillButton("Normal", if (!savedForce) accentColor else Color.TRANSPARENT, textOnPanel) {}
-        val btnForce = makePillButton("Force", if (savedForce) accentColor else Color.TRANSPARENT, textOnPanel) {}
-
-        fun updatePriorityButtons(force: Boolean) {
-            val normalBg = btnNormal.background as? GradientDrawable
-            val forceBg = btnForce.background as? GradientDrawable
-            if (force) {
-                forceBg?.setColor(accentColor)
-                normalBg?.setColor(Color.TRANSPARENT)
-            } else {
-                normalBg?.setColor(accentColor)
-                forceBg?.setColor(Color.TRANSPARENT)
-            }
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_TOUCH_FORCE_PRIORITY, force)
-                .apply()
-        }
-
-        btnNormal.setOnClickListener { updatePriorityButtons(false) }
-        btnForce.setOnClickListener { updatePriorityButtons(true) }
-
-        priorityBtnRow.addView(btnNormal, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, (8 * dp).toInt(), 0) })
-        priorityBtnRow.addView(btnForce)
-        interactContent.addView(priorityBtnRow)
-
-        // --- Hit Zone Editor ---
-        val hitZoneDivider = View(this).apply {
-            setBackgroundColor(dividerColor)
-        }
-        interactContent.addView(hitZoneDivider, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
-        ).apply { setMargins(0, (16 * dp).toInt(), 0, (12 * dp).toInt()) })
-
-        val hitZoneLabel = TextView(this).apply {
-            text = "Touch interaction zones"
-            setTextColor(textOnPanel)
-            textSize = 14f
-        }
-        interactContent.addView(hitZoneLabel)
-
-        val hitZoneHint = TextView(this).apply {
-            text = "Define where on the model head pats and body pulls are detected."
-            setTextColor(dimWhite)
-            textSize = 12f
-            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-        }
-        interactContent.addView(hitZoneHint)
-
-        val btnEditZones = makePillButton("Edit Hit Zones", accentColor, textOnPanel, dp) {
-            showHitZoneOverlay()
-        }
-        interactContent.addView(btnEditZones, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        zoneEditorController = ZoneEditorController(
+            context = this,
+            container = zoneContainer,
+            manager = live2DManager,
+            overlayHost = rootLayout,
+            onPanelVisibility = { visible ->
+                controlsPanel?.visibility = if (visible) View.VISIBLE else View.GONE
+            },
+            onZonesSaved = { /* zones auto-persist via ZoneRepository */ }
+        )
+        zoneEditorController?.buildZoneList()
 
         tabContents.add(interactContent)
         contentHost.addView(interactContent)
@@ -1322,61 +1239,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
     }
 
-    private fun showHitZoneOverlay() {
-        val root = rootLayout ?: return
-        // Remove existing overlay if any
-        hitZoneOverlay?.let { root.removeView(it) }
-
-        val headZone = com.example.liveai.interaction.HitZoneConfig.loadHeadZone(this)
-        val bodyZone = com.example.liveai.interaction.HitZoneConfig.loadBodyZone(this)
-
-        val overlay = com.example.liveai.interaction.HitZoneOverlayView(
-            context = this,
-            headZoneNorm = headZone,
-            bodyZoneNorm = bodyZone,
-            onZonesChanged = { head, body ->
-                com.example.liveai.interaction.HitZoneConfig.save(this, head, body)
-            }
-        )
-        hitZoneOverlay = overlay
-
-        // Add overlay above GL view but below controls panel
-        root.addView(overlay, root.childCount - 1, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // Add a floating "Done" button at top
-        val dp = resources.displayMetrics.density
-        val accentColor = androidx.core.content.ContextCompat.getColor(this, R.color.purple_200)
-        val textOnPanel = androidx.core.content.ContextCompat.getColor(this, R.color.text_on_panel)
-        val doneBtn = makePillButton("Done Editing", accentColor, textOnPanel, dp) {
-            hideHitZoneOverlay()
-        }
-        doneBtn.tag = "hit_zone_done_btn"
-        val params = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = (48 * dp).toInt()
-        }
-        root.addView(doneBtn, params)
-    }
-
-    private fun hideHitZoneOverlay() {
-        val root = rootLayout ?: return
-        hitZoneOverlay?.let {
-            // Save final positions
-            com.example.liveai.interaction.HitZoneConfig.save(this, it.getHeadZone(), it.getBodyZone())
-            root.removeView(it)
-        }
-        hitZoneOverlay = null
-
-        // Remove the done button
-        val doneBtn = root.findViewWithTag<View>("hit_zone_done_btn")
-        if (doneBtn != null) root.removeView(doneBtn)
-    }
 
     private fun updateAudioMotionConfig() {
         audioDrivenMotion?.config = AudioMotionConfig(

@@ -6,17 +6,17 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * Damped elastic spring-back animation.
+ * Damped elastic spring-back animation for arbitrary parameter maps.
  * Ports the desktop JS spring curve 1:1 — time-based, frame-rate independent.
  *
  * Usage:
- *   val spring = SpringAnimator(startAngles, config)
+ *   val spring = SpringAnimator(startValues, config)
  *   // Each frame:
- *   val current = spring.update(elapsedMs)
+ *   val current = spring.update()
  *   if (spring.isFinished) { ... }
  */
 class SpringAnimator(
-    private val startAngles: InteractionAngles,
+    private val startValues: Map<String, Float>,
     private val config: SpringConfig
 ) {
     private val startTimeMs = System.currentTimeMillis()
@@ -25,10 +25,10 @@ class SpringAnimator(
         private set
 
     /**
-     * Get the current spring-interpolated angles.
-     * Call once per frame. Returns angles converging toward zero.
+     * Get the current spring-interpolated parameter values.
+     * Call once per frame. Returns values converging toward zero.
      */
-    fun update(): InteractionAngles {
+    fun update(): Map<String, Float> {
         val elapsedMs = System.currentTimeMillis() - startTimeMs
         return update(elapsedMs)
     }
@@ -36,22 +36,16 @@ class SpringAnimator(
     /**
      * Testable overload: pass elapsed time explicitly.
      */
-    fun update(elapsedMs: Long): InteractionAngles {
+    fun update(elapsedMs: Long): Map<String, Float> {
         val progress = min(elapsedMs.toFloat() / config.durationMs.toFloat(), 1f)
 
         if (progress >= 1f) {
             isFinished = true
-            return InteractionAngles(0f, 0f, 0f)
+            return startValues.mapValues { 0f }
         }
 
-        val eased = elasticEaseOut(progress)
-        val factor = 1f - eased
-
-        return InteractionAngles(
-            angleX = startAngles.angleX * factor,
-            angleY = startAngles.angleY * factor,
-            angleZ = startAngles.angleZ * factor
-        )
+        val factor = 1f - elasticEaseOut(progress)
+        return startValues.mapValues { (_, v) -> v * factor }
     }
 
     /**
@@ -66,12 +60,5 @@ class SpringAnimator(
 
         return 2f.pow(-config.decay * progress) *
             sin(((progress * config.sinMultiplier - 0.75f) * c4)) + 1f
-    }
-
-    companion object {
-        /** Convenience: create a spring for a body part using its default config. */
-        fun forBodyPart(bodyPart: BodyPart, startAngles: InteractionAngles): SpringAnimator {
-            return SpringAnimator(startAngles, InteractionEngine.configFor(bodyPart).spring)
-        }
     }
 }

@@ -50,16 +50,9 @@ public class LAppModel extends CubismUserModel {
     private final CubismId idParamEyeBallX;
     private final CubismId idParamEyeBallY;
 
-    // Interaction angles — set by touch gestures, applied before physics.
-    // When active, these REPLACE the drag-based angle values for the
-    // corresponding body part so the gesture controls the model directly.
-    private boolean headInteractionActive = false;
-    private float interactionAngleX = 0f;
-    private float interactionAngleY = 0f;
-    private boolean bodyInteractionActive = false;
-    private float interactionBodyAngleX = 0f;
-    private float interactionBodyAngleY = 0f;
-    private float interactionBodyAngleZ = 0f;
+    // Interaction parameters — set by touch gestures, applied before physics.
+    // Maps paramId → value. Empty = no active interaction.
+    private Map<String, Float> interactionParams = new HashMap<>();
 
     public LAppModel(LAppTextureManager textureManager) {
         this.textureManager = textureManager;
@@ -114,34 +107,16 @@ public class LAppModel extends CubismUserModel {
         this.parameterOverrides = new HashMap<>(overrides);
     }
 
-    /** Set head interaction angles (replaces drag-based head angles while active). */
-    public void setHeadInteractionAngles(float angleX, float angleY) {
-        headInteractionActive = true;
-        interactionAngleX = angleX;
-        interactionAngleY = angleY;
+    /** Set interaction parameter values (from touch gesture zones). */
+    public void setInteractionParams(Map<String, Float> params) {
+        interactionParams.putAll(params);
     }
 
-    /** Clear head interaction — drag-based angles resume. */
-    public void clearHeadInteraction() {
-        headInteractionActive = false;
-        interactionAngleX = 0f;
-        interactionAngleY = 0f;
-    }
-
-    /** Set body interaction angles (replaces drag-based body angles while active). */
-    public void setBodyInteractionAngles(float angleX, float angleY, float angleZ) {
-        bodyInteractionActive = true;
-        interactionBodyAngleX = angleX;
-        interactionBodyAngleY = angleY;
-        interactionBodyAngleZ = angleZ;
-    }
-
-    /** Clear body interaction — drag-based angles resume. */
-    public void clearBodyInteraction() {
-        bodyInteractionActive = false;
-        interactionBodyAngleX = 0f;
-        interactionBodyAngleY = 0f;
-        interactionBodyAngleZ = 0f;
+    /** Clear specific interaction parameters (restores normal behavior). */
+    public void clearInteractionParams(java.util.Set<String> paramIds) {
+        for (String id : paramIds) {
+            interactionParams.remove(id);
+        }
     }
 
     public void deleteModel() {
@@ -166,9 +141,9 @@ public class LAppModel extends CubismUserModel {
 
         model.loadParameters();
 
-        if (motionManager.isFinished()) {
+        if (motionManager.isFinished() && parameterOverrides.isEmpty()) {
             startRandomMotion(LAppDefine.MotionGroup.IDLE.getId(), LAppDefine.Priority.IDLE.getPriority());
-        } else {
+        } else if (!motionManager.isFinished()) {
             isMotionUpdated = motionManager.updateMotion(model, deltaTimeSeconds);
         }
 
@@ -184,27 +159,31 @@ public class LAppModel extends CubismUserModel {
             expressionManager.updateMotion(model, deltaTimeSeconds);
         }
 
-        // Head angles: interaction gesture overrides drag-based values
-        if (headInteractionActive) {
-            model.setParameterValue(idParamAngleX, interactionAngleX);
-            model.setParameterValue(idParamAngleY, interactionAngleY);
-        } else {
+        // Default drag-based angles (overridden per-param if interaction is active)
+        if (!interactionParams.containsKey("ParamAngleX")) {
             model.addParameterValue(idParamAngleX, dragX * 30);
+        }
+        if (!interactionParams.containsKey("ParamAngleY")) {
             model.addParameterValue(idParamAngleY, dragY * 30);
+        }
+        if (!interactionParams.containsKey("ParamAngleZ")) {
             model.addParameterValue(idParamAngleZ, dragX * dragY * (-30));
         }
-
-        // Body angles: interaction gesture overrides drag-based values
-        if (bodyInteractionActive) {
-            model.setParameterValue(idParamBodyAngleX, interactionBodyAngleX);
-            model.setParameterValue(idParamBodyAngleY, interactionBodyAngleY);
-            model.setParameterValue(idParamBodyAngleZ, interactionBodyAngleZ);
-        } else {
+        if (!interactionParams.containsKey("ParamBodyAngleX")) {
             model.addParameterValue(idParamBodyAngleX, dragX * 10);
         }
 
         model.addParameterValue(idParamEyeBallX, dragX);
         model.addParameterValue(idParamEyeBallY, dragY);
+
+        // Apply interaction parameters — touch gestures override specific params
+        if (!interactionParams.isEmpty()) {
+            CubismIdManager idManager = CubismFramework.getIdManager();
+            for (Map.Entry<String, Float> entry : interactionParams.entrySet()) {
+                CubismId id = idManager.getId(entry.getKey());
+                model.setParameterValue(id, entry.getValue());
+            }
+        }
 
         if (breath != null) {
             breath.updateParameters(model, deltaTimeSeconds);

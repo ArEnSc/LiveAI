@@ -11,94 +11,73 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
- * Transparent overlay that draws draggable/resizable hit zone rectangles
- * over the model preview. Shown only while the user is editing hit zones.
- *
- * Each zone can be moved by dragging its interior, or resized by dragging
- * a corner handle.
+ * Transparent overlay that draws a single draggable/resizable zone rectangle
+ * over the model preview. Shown while the user is positioning a zone.
  */
 @SuppressLint("ViewConstructor")
 class HitZoneOverlayView(
     context: Context,
-    private var headZoneNorm: RectF,
-    private var bodyZoneNorm: RectF,
-    private val onZonesChanged: (head: RectF, body: RectF) -> Unit
+    private var zoneNorm: RectF,
+    private val zoneColor: Int,
+    private val onZoneChanged: (RectF) -> Unit
 ) : View(context) {
 
     companion object {
         private const val HANDLE_RADIUS_DP = 10f
         private const val MIN_SIZE_DP = 44f
-        private const val HEAD_COLOR = 0x664488FF.toInt()
-        private const val BODY_COLOR = 0x6644FF88.toInt()
-        private const val HEAD_BORDER_COLOR = 0xFF4488FF.toInt()
-        private const val BODY_BORDER_COLOR = 0xFF44FF88.toInt()
     }
 
     private val dp = context.resources.displayMetrics.density
     private val handleRadius = HANDLE_RADIUS_DP * dp
     private val minSize = MIN_SIZE_DP * dp
 
-    private val headFillPaint = Paint().apply { color = HEAD_COLOR; style = Paint.Style.FILL }
-    private val bodyFillPaint = Paint().apply { color = BODY_COLOR; style = Paint.Style.FILL }
-    private val headBorderPaint = Paint().apply {
-        color = HEAD_BORDER_COLOR; style = Paint.Style.STROKE; strokeWidth = 2f * dp
+    private val fillAlpha = 0x66
+    private val fillColor = (fillAlpha shl 24) or (zoneColor and 0x00FFFFFF)
+    private val borderColor = zoneColor or (0xFF shl 24).toInt()
+
+    private val fillPaint = Paint().apply { color = fillColor; style = Paint.Style.FILL }
+    private val borderPaint = Paint().apply {
+        color = borderColor; style = Paint.Style.STROKE; strokeWidth = 2f * dp
         pathEffect = DashPathEffect(floatArrayOf(8f * dp, 4f * dp), 0f)
     }
-    private val bodyBorderPaint = Paint().apply {
-        color = BODY_BORDER_COLOR; style = Paint.Style.STROKE; strokeWidth = 2f * dp
-        pathEffect = DashPathEffect(floatArrayOf(8f * dp, 4f * dp), 0f)
-    }
-    private val handlePaint = Paint().apply { style = Paint.Style.FILL }
+    private val handlePaint = Paint().apply { color = borderColor; style = Paint.Style.FILL }
     private val labelPaint = Paint().apply {
         color = Color.WHITE; textSize = 14f * dp; textAlign = Paint.Align.CENTER
         isFakeBoldText = true; setShadowLayer(3f * dp, 0f, 0f, Color.BLACK)
     }
 
-    // Pixel-space rects (recomputed on layout / drag)
-    private var headRect = RectF()
-    private var bodyRect = RectF()
+    private var pixelRect = RectF()
 
     // Drag state
-    private enum class DragTarget { NONE, HEAD_MOVE, HEAD_CORNER, BODY_MOVE, BODY_CORNER }
-    private var dragTarget = DragTarget.NONE
-    private var dragCornerIndex = -1 // 0=TL, 1=TR, 2=BR, 3=BL
+    private enum class DragMode { NONE, MOVE, CORNER }
+    private var dragMode = DragMode.NONE
+    private var dragCornerIndex = -1
     private var dragStartX = 0f
     private var dragStartY = 0f
     private var dragRectSnapshot = RectF()
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        headRect = HitZoneConfig.toPixels(headZoneNorm, w.toFloat(), h.toFloat())
-        bodyRect = HitZoneConfig.toPixels(bodyZoneNorm, w.toFloat(), h.toFloat())
+        pixelRect = toPixels(zoneNorm, w.toFloat(), h.toFloat())
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        drawZone(canvas, headRect, headFillPaint, headBorderPaint, HEAD_BORDER_COLOR, "HEAD")
-        drawZone(canvas, bodyRect, bodyFillPaint, bodyBorderPaint, BODY_BORDER_COLOR, "BODY")
-    }
+        canvas.drawRect(pixelRect, fillPaint)
+        canvas.drawRect(pixelRect, borderPaint)
 
-    private fun drawZone(canvas: Canvas, rect: RectF, fill: Paint, border: Paint, handleColor: Int, label: String) {
-        canvas.drawRect(rect, fill)
-        canvas.drawRect(rect, border)
-
-        // Corner handles
-        handlePaint.color = handleColor
-        val corners = cornersOf(rect)
+        val corners = cornersOf(pixelRect)
         for (corner in corners) {
             canvas.drawCircle(corner.first, corner.second, handleRadius, handlePaint)
         }
 
-        // Label
-        canvas.drawText(label, rect.centerX(), rect.centerY() + labelPaint.textSize / 3f, labelPaint)
+        canvas.drawText(
+            "Drag to move \u2022 Corners to resize",
+            pixelRect.centerX(),
+            pixelRect.centerY() + labelPaint.textSize / 3f,
+            labelPaint
+        )
     }
-
-    private fun cornersOf(r: RectF): List<Pair<Float, Float>> = listOf(
-        r.left to r.top,
-        r.right to r.top,
-        r.right to r.bottom,
-        r.left to r.bottom
-    )
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -107,59 +86,48 @@ class HitZoneOverlayView(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // Check corner handles first (head priority over body)
-                val headCorner = hitCorner(headRect, x, y)
-                if (headCorner >= 0) {
-                    startDrag(DragTarget.HEAD_CORNER, headRect, x, y)
-                    dragCornerIndex = headCorner
+                val corner = hitCorner(pixelRect, x, y)
+                if (corner >= 0) {
+                    startDrag(DragMode.CORNER, x, y)
+                    dragCornerIndex = corner
                     return true
                 }
-                val bodyCorner = hitCorner(bodyRect, x, y)
-                if (bodyCorner >= 0) {
-                    startDrag(DragTarget.BODY_CORNER, bodyRect, x, y)
-                    dragCornerIndex = bodyCorner
-                    return true
-                }
-                // Check interior (move)
-                if (headRect.contains(x, y)) {
-                    startDrag(DragTarget.HEAD_MOVE, headRect, x, y)
-                    return true
-                }
-                if (bodyRect.contains(x, y)) {
-                    startDrag(DragTarget.BODY_MOVE, bodyRect, x, y)
+                if (pixelRect.contains(x, y)) {
+                    startDrag(DragMode.MOVE, x, y)
                     return true
                 }
                 return false
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (dragTarget == DragTarget.NONE) return false
-
+                if (dragMode == DragMode.NONE) return false
                 val dx = x - dragStartX
                 val dy = y - dragStartY
-                val target = if (dragTarget == DragTarget.HEAD_MOVE || dragTarget == DragTarget.HEAD_CORNER) headRect else bodyRect
 
-                when (dragTarget) {
-                    DragTarget.HEAD_MOVE, DragTarget.BODY_MOVE -> {
-                        val newLeft = (dragRectSnapshot.left + dx).coerceIn(0f, width.toFloat() - dragRectSnapshot.width())
-                        val newTop = (dragRectSnapshot.top + dy).coerceIn(0f, height.toFloat() - dragRectSnapshot.height())
-                        target.set(newLeft, newTop, newLeft + dragRectSnapshot.width(), newTop + dragRectSnapshot.height())
+                when (dragMode) {
+                    DragMode.MOVE -> {
+                        val newLeft = (dragRectSnapshot.left + dx)
+                            .coerceIn(0f, width.toFloat() - dragRectSnapshot.width())
+                        val newTop = (dragRectSnapshot.top + dy)
+                            .coerceIn(0f, height.toFloat() - dragRectSnapshot.height())
+                        pixelRect.set(
+                            newLeft, newTop,
+                            newLeft + dragRectSnapshot.width(),
+                            newTop + dragRectSnapshot.height()
+                        )
                     }
-                    DragTarget.HEAD_CORNER, DragTarget.BODY_CORNER -> {
-                        resizeByCorner(target, dragCornerIndex, dx, dy)
-                    }
-                    DragTarget.NONE -> {}
+                    DragMode.CORNER -> resizeByCorner(dragCornerIndex, dx, dy)
+                    DragMode.NONE -> {}
                 }
-
                 invalidate()
                 return true
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (dragTarget != DragTarget.NONE) {
-                    dragTarget = DragTarget.NONE
+                if (dragMode != DragMode.NONE) {
+                    dragMode = DragMode.NONE
                     syncNormalized()
-                    onZonesChanged(headZoneNorm, bodyZoneNorm)
+                    onZoneChanged(zoneNorm)
                     return true
                 }
             }
@@ -167,42 +135,43 @@ class HitZoneOverlayView(
         return false
     }
 
-    private fun startDrag(target: DragTarget, rect: RectF, x: Float, y: Float) {
-        dragTarget = target
+    fun getZoneNorm(): RectF = RectF(zoneNorm)
+
+    private fun startDrag(mode: DragMode, x: Float, y: Float) {
+        dragMode = mode
         dragStartX = x
         dragStartY = y
-        dragRectSnapshot = RectF(rect)
+        dragRectSnapshot = RectF(pixelRect)
     }
 
-    private fun resizeByCorner(rect: RectF, corner: Int, dx: Float, dy: Float) {
+    private fun resizeByCorner(corner: Int, dx: Float, dy: Float) {
         val snap = dragRectSnapshot
         when (corner) {
-            0 -> { // top-left
-                rect.left = (snap.left + dx).coerceIn(0f, snap.right - minSize)
-                rect.top = (snap.top + dy).coerceIn(0f, snap.bottom - minSize)
+            0 -> {
+                pixelRect.left = (snap.left + dx).coerceIn(0f, snap.right - minSize)
+                pixelRect.top = (snap.top + dy).coerceIn(0f, snap.bottom - minSize)
             }
-            1 -> { // top-right
-                rect.right = (snap.right + dx).coerceIn(snap.left + minSize, width.toFloat())
-                rect.top = (snap.top + dy).coerceIn(0f, snap.bottom - minSize)
+            1 -> {
+                pixelRect.right = (snap.right + dx).coerceIn(snap.left + minSize, width.toFloat())
+                pixelRect.top = (snap.top + dy).coerceIn(0f, snap.bottom - minSize)
             }
-            2 -> { // bottom-right
-                rect.right = (snap.right + dx).coerceIn(snap.left + minSize, width.toFloat())
-                rect.bottom = (snap.bottom + dy).coerceIn(snap.top + minSize, height.toFloat())
+            2 -> {
+                pixelRect.right = (snap.right + dx).coerceIn(snap.left + minSize, width.toFloat())
+                pixelRect.bottom = (snap.bottom + dy).coerceIn(snap.top + minSize, height.toFloat())
             }
-            3 -> { // bottom-left
-                rect.left = (snap.left + dx).coerceIn(0f, snap.right - minSize)
-                rect.bottom = (snap.bottom + dy).coerceIn(snap.top + minSize, height.toFloat())
+            3 -> {
+                pixelRect.left = (snap.left + dx).coerceIn(0f, snap.right - minSize)
+                pixelRect.bottom = (snap.bottom + dy).coerceIn(snap.top + minSize, height.toFloat())
             }
         }
     }
 
     private fun hitCorner(rect: RectF, x: Float, y: Float): Int {
-        val touchRadius = handleRadius * 2f // generous touch target
-        val corners = cornersOf(rect)
-        for ((i, corner) in corners.withIndex()) {
-            val dx = x - corner.first
-            val dy = y - corner.second
-            if (dx * dx + dy * dy <= touchRadius * touchRadius) return i
+        val touchRadius = handleRadius * 2f
+        for ((i, corner) in cornersOf(rect).withIndex()) {
+            val cx = x - corner.first
+            val cy = y - corner.second
+            if (cx * cx + cy * cy <= touchRadius * touchRadius) return i
         }
         return -1
     }
@@ -211,11 +180,19 @@ class HitZoneOverlayView(
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        headZoneNorm = HitZoneConfig.toNormalized(headRect, w, h)
-        bodyZoneNorm = HitZoneConfig.toNormalized(bodyRect, w, h)
+        zoneNorm = toNormalized(pixelRect, w, h)
     }
 
-    /** Get current normalized zones. */
-    fun getHeadZone(): RectF = RectF(headZoneNorm)
-    fun getBodyZone(): RectF = RectF(bodyZoneNorm)
+    private fun cornersOf(r: RectF): List<Pair<Float, Float>> = listOf(
+        r.left to r.top, r.right to r.top,
+        r.right to r.bottom, r.left to r.bottom
+    )
+
+    private fun toPixels(norm: RectF, w: Float, h: Float) = RectF(
+        norm.left * w, norm.top * h, norm.right * w, norm.bottom * h
+    )
+
+    private fun toNormalized(px: RectF, w: Float, h: Float) = RectF(
+        px.left / w, px.top / h, px.right / w, px.bottom / h
+    )
 }
