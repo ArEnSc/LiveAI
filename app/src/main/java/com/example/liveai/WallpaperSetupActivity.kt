@@ -81,6 +81,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioMotionEnabled = true
     private var audioMotionIntensity = 1.0f
     private var audioMotionSpeed = 1.0f
+    private var rootLayout: FrameLayout? = null
+    private var hitZoneOverlay: com.example.liveai.interaction.HitZoneOverlayView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,6 +110,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             .toMutableMap()
 
         val root = FrameLayout(this)
+        rootLayout = root
 
         // Session and Cubism init are deferred to the GL thread (onSurfaceCreated)
         // to avoid EGL context conflicts with a running wallpaper engine.
@@ -699,6 +702,36 @@ class WallpaperSetupActivity : AppCompatActivity() {
         priorityBtnRow.addView(btnForce)
         interactContent.addView(priorityBtnRow)
 
+        // --- Hit Zone Editor ---
+        val hitZoneDivider = View(this).apply {
+            setBackgroundColor(dividerColor)
+        }
+        interactContent.addView(hitZoneDivider, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+        ).apply { setMargins(0, (16 * dp).toInt(), 0, (12 * dp).toInt()) })
+
+        val hitZoneLabel = TextView(this).apply {
+            text = "Touch interaction zones"
+            setTextColor(textOnPanel)
+            textSize = 14f
+        }
+        interactContent.addView(hitZoneLabel)
+
+        val hitZoneHint = TextView(this).apply {
+            text = "Define where on the model head pats and body pulls are detected."
+            setTextColor(dimWhite)
+            textSize = 12f
+            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
+        }
+        interactContent.addView(hitZoneHint)
+
+        val btnEditZones = makePillButton("Edit Hit Zones", accentColor, textOnPanel, dp) {
+            showHitZoneOverlay()
+        }
+        interactContent.addView(btnEditZones, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_HORIZONTAL })
+
         tabContents.add(interactContent)
         contentHost.addView(interactContent)
 
@@ -1287,6 +1320,62 @@ class WallpaperSetupActivity : AppCompatActivity() {
             stateListAnimator = null
             setOnClickListener { onClick() }
         }
+    }
+
+    private fun showHitZoneOverlay() {
+        val root = rootLayout ?: return
+        // Remove existing overlay if any
+        hitZoneOverlay?.let { root.removeView(it) }
+
+        val headZone = com.example.liveai.interaction.HitZoneConfig.loadHeadZone(this)
+        val bodyZone = com.example.liveai.interaction.HitZoneConfig.loadBodyZone(this)
+
+        val overlay = com.example.liveai.interaction.HitZoneOverlayView(
+            context = this,
+            headZoneNorm = headZone,
+            bodyZoneNorm = bodyZone,
+            onZonesChanged = { head, body ->
+                com.example.liveai.interaction.HitZoneConfig.save(this, head, body)
+            }
+        )
+        hitZoneOverlay = overlay
+
+        // Add overlay above GL view but below controls panel
+        root.addView(overlay, root.childCount - 1, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // Add a floating "Done" button at top
+        val dp = resources.displayMetrics.density
+        val accentColor = androidx.core.content.ContextCompat.getColor(this, R.color.purple_200)
+        val textOnPanel = androidx.core.content.ContextCompat.getColor(this, R.color.text_on_panel)
+        val doneBtn = makePillButton("Done Editing", accentColor, textOnPanel, dp) {
+            hideHitZoneOverlay()
+        }
+        doneBtn.tag = "hit_zone_done_btn"
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = (48 * dp).toInt()
+        }
+        root.addView(doneBtn, params)
+    }
+
+    private fun hideHitZoneOverlay() {
+        val root = rootLayout ?: return
+        hitZoneOverlay?.let {
+            // Save final positions
+            com.example.liveai.interaction.HitZoneConfig.save(this, it.getHeadZone(), it.getBodyZone())
+            root.removeView(it)
+        }
+        hitZoneOverlay = null
+
+        // Remove the done button
+        val doneBtn = root.findViewWithTag<View>("hit_zone_done_btn")
+        if (doneBtn != null) root.removeView(doneBtn)
     }
 
     private fun updateAudioMotionConfig() {

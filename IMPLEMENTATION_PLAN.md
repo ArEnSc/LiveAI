@@ -25,7 +25,7 @@
 **Files**:
 - `live2d/LAppModel.java` — add interaction angle support
 - `live2d/LAppLive2DManager.java` — expose interaction methods
-**Status**: Not Started
+**Status**: Complete
 
 ## Stage 3: Touch Handling + Hit Zones in Wallpaper Service
 **Goal**: Multi-touch pointer routing with simple rectangular hit zones. Drag on head → head tilts. Drag on body → body tilts.
@@ -40,7 +40,7 @@
 - `interaction/TouchInteractionHandler.kt` — pointer routing + hit detection
 - `Live2DWallpaperService.kt` — wire into onTouchEvent
 - `live2d/LAppLive2DManager.java` — expose model bounds for hit zone computation
-**Status**: Not Started
+**Status**: Complete (includes spring-back from Stage 4)
 
 ## Stage 4: Spring-Back Animation on Release
 **Goal**: When finger lifts, angles animate back to zero with a bouncy elastic feel.
@@ -53,7 +53,7 @@
 **Files**:
 - `interaction/SpringAnimator.kt` — already created in Stage 1, now wired to frame loop
 - `interaction/TouchInteractionHandler.kt` — manage spring lifecycle
-**Status**: Not Started
+**Status**: Complete (wired in Stage 3)
 
 ## Stage 5: Eye Control During Head Pat
 **Goal**: Eyes close proportionally when dragging down on head, reopen on release.

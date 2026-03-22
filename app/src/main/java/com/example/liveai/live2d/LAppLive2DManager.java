@@ -256,4 +256,46 @@ public class LAppLive2DManager {
             model.setDragging(x, y);
         }
     }
+
+    // --- Touch interaction ---
+
+    /** Set head interaction angles from touch gesture. */
+    public void setHeadInteractionAngles(float angleX, float angleY) {
+        if (model != null) {
+            model.setHeadInteractionAngles(angleX, angleY);
+        }
+    }
+
+    /** Clear head interaction — normal behavior resumes. */
+    public void clearHeadInteraction() {
+        if (model != null) {
+            model.clearHeadInteraction();
+        }
+    }
+
+    /** Set body interaction angles from touch gesture. */
+    public void setBodyInteractionAngles(float angleX, float angleY, float angleZ) {
+        if (model != null) {
+            model.setBodyInteractionAngles(angleX, angleY, angleZ);
+        }
+    }
+
+    /** Clear body interaction — normal behavior resumes. */
+    public void clearBodyInteraction() {
+        if (model != null) {
+            model.clearBodyInteraction();
+        }
+    }
+
+    /** Get model offset X (needed for hit zone computation). */
+    public float getModelOffsetX() { return modelOffsetX; }
+
+    /** Get model offset Y (needed for hit zone computation). */
+    public float getModelOffsetY() { return modelOffsetY; }
+
+    /** Get window width. */
+    public int getWindowWidth() { return windowWidth; }
+
+    /** Get window height. */
+    public int getWindowHeight() { return windowHeight; }
 }

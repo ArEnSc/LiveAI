@@ -24,6 +24,7 @@ import com.example.liveai.live2d.GlStateGuard
 import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
 import com.example.liveai.live2d.toFloatBuffer
+import com.example.liveai.interaction.TouchInteractionHandler
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid
 
 class Live2DWallpaperService : WallpaperService() {
@@ -51,6 +52,7 @@ class Live2DWallpaperService : WallpaperService() {
         private var glReady = false
         private var surfaceWidth = 0
         private var surfaceHeight = 0
+        private var touchHandler: TouchInteractionHandler? = null
 
         // Background texture GL state
         private var bgTextureId = 0
@@ -97,16 +99,21 @@ class Live2DWallpaperService : WallpaperService() {
 
         override fun onTouchEvent(event: MotionEvent?) {
             event ?: return
-            Log.d(TAG, "[$engineId] onTouchEvent action=${event.action} x=${event.x} y=${event.y}")
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                val prefs = getSharedPreferences(
-                    WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE
-                )
-                val touchEnabled = prefs.getBoolean(
-                    WallpaperSetupActivity.KEY_TOUCH_ENABLED, true
-                )
-                if (!touchEnabled) return
 
+            val prefs = getSharedPreferences(
+                WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE
+            )
+            val touchEnabled = prefs.getBoolean(
+                WallpaperSetupActivity.KEY_TOUCH_ENABLED, true
+            )
+            if (!touchEnabled) return
+
+            // Try interaction handler first (head pat / body pull)
+            val consumed = touchHandler?.onTouchEvent(event) == true
+            if (consumed) return
+
+            // Fallback: original behavior — tap triggers random motion
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                 val forcePriority = prefs.getBoolean(
                     WallpaperSetupActivity.KEY_TOUCH_FORCE_PRIORITY, true
                 )
@@ -115,11 +122,10 @@ class Live2DWallpaperService : WallpaperService() {
                 } else {
                     LAppDefine.Priority.NORMAL.priority
                 }
-                val result = live2DManager?.startRandomMotion(
+                live2DManager?.startRandomMotion(
                     LAppDefine.MotionGroup.IDLE.id,
                     priority
-                ) ?: -1
-                Log.d(TAG, "[$engineId] startRandomMotion priority=$priority result=$result")
+                )
             }
         }
 
@@ -239,7 +245,13 @@ class Live2DWallpaperService : WallpaperService() {
             session = Live2DSessionFactory.create(this@Live2DWallpaperService)
             live2DManager = session?.manager
             live2DManager?.setFitToScreen(true)
-            Log.d(TAG, "[$engineId] Session created, manager=${live2DManager != null}")
+
+            val mgr = live2DManager
+            touchHandler = if (mgr != null) {
+                TouchInteractionHandler(mgr, this@Live2DWallpaperService)
+            } else null
+
+            Log.d(TAG, "[$engineId] Session created, manager=${mgr != null}")
         }
 
         private fun restoreSettings() {
@@ -291,6 +303,7 @@ class Live2DWallpaperService : WallpaperService() {
                 session = null
             }
             live2DManager = null
+            touchHandler = null
             modelLoaded = false
             glReady = false
 
@@ -349,6 +362,7 @@ class Live2DWallpaperService : WallpaperService() {
             }
 
             LAppPal.updateTime()
+            touchHandler?.updateSpring()
 
             GLES20.glClearColor(0.12f, 0.12f, 0.12f, 1.0f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
