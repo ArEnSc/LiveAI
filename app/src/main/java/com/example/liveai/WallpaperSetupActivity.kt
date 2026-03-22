@@ -1047,8 +1047,19 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
 
         fun closeEditor() {
-            editor.visibility = View.GONE
-            list.visibility = View.VISIBLE
+            editor.animate()
+                .translationY(-editor.height.toFloat())
+                .alpha(0f)
+                .setDuration(200)
+                .withEndAction {
+                    editor.visibility = View.GONE
+                    editor.translationY = 0f
+                    editor.alpha = 1f
+                    list.alpha = 0f
+                    list.visibility = View.VISIBLE
+                    list.animate().alpha(1f).setDuration(150).start()
+                }
+                .start()
         }
 
         val btnReset = makePillButton("Reset", Color.TRANSPARENT, dimWhite, dp) {
@@ -1102,9 +1113,23 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         editor.addView(btnRow)
 
-        // Show editor, hide list
-        list.visibility = View.GONE
-        editor.visibility = View.VISIBLE
+        // Animate: list fades out, editor slides down into view
+        list.animate()
+            .alpha(0f)
+            .setDuration(150)
+            .withEndAction {
+                list.visibility = View.GONE
+                list.alpha = 1f
+                editor.translationY = -editor.height.toFloat().coerceAtLeast(200f)
+                editor.alpha = 0f
+                editor.visibility = View.VISIBLE
+                editor.animate()
+                    .translationY(0f)
+                    .alpha(1f)
+                    .setDuration(250)
+                    .start()
+            }
+            .start()
     }
 
     private fun makePillButton(
