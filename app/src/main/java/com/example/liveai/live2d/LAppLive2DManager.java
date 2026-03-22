@@ -245,6 +245,12 @@ public class LAppLive2DManager {
     private final Map<String, Float> parameterOverrides = new HashMap<>();
     private final Map<String, String> cdiDisplayNames = new HashMap<>();
 
+    /** Trigger a random motion from the given group at the given priority. */
+    public int startRandomMotion(String group, int priority) {
+        if (model == null) return -1;
+        return model.startRandomMotion(group, priority);
+    }
+
     public void onDrag(float x, float y) {
         if (model != null) {
             model.setDragging(x, y);

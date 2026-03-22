@@ -12,8 +12,10 @@ import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
 import android.util.Log
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import com.example.liveai.live2d.CubismLifecycleManager
+import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.Live2DSession
@@ -89,7 +91,36 @@ class Live2DWallpaperService : WallpaperService() {
 
         override fun onCreate(surfaceHolder: SurfaceHolder?) {
             super.onCreate(surfaceHolder)
+            setTouchEventsEnabled(true)
             logState("onCreate")
+        }
+
+        override fun onTouchEvent(event: MotionEvent?) {
+            event ?: return
+            Log.d(TAG, "[$engineId] onTouchEvent action=${event.action} x=${event.x} y=${event.y}")
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                val prefs = getSharedPreferences(
+                    WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE
+                )
+                val touchEnabled = prefs.getBoolean(
+                    WallpaperSetupActivity.KEY_TOUCH_ENABLED, true
+                )
+                if (!touchEnabled) return
+
+                val forcePriority = prefs.getBoolean(
+                    WallpaperSetupActivity.KEY_TOUCH_FORCE_PRIORITY, true
+                )
+                val priority = if (forcePriority) {
+                    LAppDefine.Priority.FORCE.priority
+                } else {
+                    LAppDefine.Priority.NORMAL.priority
+                }
+                val result = live2DManager?.startRandomMotion(
+                    LAppDefine.MotionGroup.IDLE.id,
+                    priority
+                ) ?: -1
+                Log.d(TAG, "[$engineId] startRandomMotion priority=$priority result=$result")
+            }
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder?) {

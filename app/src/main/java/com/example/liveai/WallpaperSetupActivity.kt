@@ -17,7 +17,10 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
@@ -55,6 +58,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
         const val MODE_WALLPAPER = "wallpaper"
         const val MODE_OVERLAY = "overlay"
         const val PARAM_OVERRIDES_PREFS = "param_overrides"
+        const val KEY_TOUCH_ENABLED = "touch_enabled"
+        const val KEY_TOUCH_FORCE_PRIORITY = "touch_force_priority"
     }
 
     private var setupMode = MODE_WALLPAPER
@@ -282,7 +287,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         })
 
         // --- Tab bar ---
-        val tabNames = listOf("Position", "Effects", "Audio", "Params")
+        val tabNames = listOf("Position", "Effects", "Audio", "Interact", "Params")
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -614,6 +619,89 @@ class WallpaperSetupActivity : AppCompatActivity() {
         tabContents.add(audioContent)
         contentHost.addView(audioContent)
 
+        // ===== TAB: Interaction =====
+        val interactContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padH, padV, padH, padV)
+            visibility = View.GONE
+        }
+
+        val touchEnabledSwitch = Switch(this).apply {
+            text = "React to touch"
+            setTextColor(textOnPanel)
+            textSize = 14f
+            isChecked = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(KEY_TOUCH_ENABLED, true)
+            setOnCheckedChangeListener { _, checked ->
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_TOUCH_ENABLED, checked)
+                    .apply()
+            }
+        }
+        interactContent.addView(touchEnabledSwitch)
+
+        val touchHintLabel = TextView(this).apply {
+            text = "When enabled, tapping the wallpaper triggers a motion on the character."
+            setTextColor(dimWhite)
+            textSize = 12f
+            setPadding(0, (4 * dp).toInt(), 0, (12 * dp).toInt())
+        }
+        interactContent.addView(touchHintLabel)
+
+        val motionPriorityLabel = TextView(this).apply {
+            text = "Touch priority"
+            setTextColor(textOnPanel)
+            textSize = 14f
+        }
+        interactContent.addView(motionPriorityLabel)
+
+        val priorityHintLabel = TextView(this).apply {
+            text = "Force: always interrupts current motion. Normal: waits for current motion to finish."
+            setTextColor(dimWhite)
+            textSize = 12f
+            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
+        }
+        interactContent.addView(priorityHintLabel)
+
+        val savedForce = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(KEY_TOUCH_FORCE_PRIORITY, true)
+
+        val priorityBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val btnNormal = makePillButton("Normal", if (!savedForce) accentColor else Color.TRANSPARENT, textOnPanel) {}
+        val btnForce = makePillButton("Force", if (savedForce) accentColor else Color.TRANSPARENT, textOnPanel) {}
+
+        fun updatePriorityButtons(force: Boolean) {
+            val normalBg = btnNormal.background as? GradientDrawable
+            val forceBg = btnForce.background as? GradientDrawable
+            if (force) {
+                forceBg?.setColor(accentColor)
+                normalBg?.setColor(Color.TRANSPARENT)
+            } else {
+                normalBg?.setColor(accentColor)
+                forceBg?.setColor(Color.TRANSPARENT)
+            }
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_TOUCH_FORCE_PRIORITY, force)
+                .apply()
+        }
+
+        btnNormal.setOnClickListener { updatePriorityButtons(false) }
+        btnForce.setOnClickListener { updatePriorityButtons(true) }
+
+        priorityBtnRow.addView(btnNormal, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(0, 0, (8 * dp).toInt(), 0) })
+        priorityBtnRow.addView(btnForce)
+        interactContent.addView(priorityBtnRow)
+
+        tabContents.add(interactContent)
+        contentHost.addView(interactContent)
+
         // ===== TAB: Parameters =====
         val paramsContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -734,6 +822,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
                     activePointerId = event.getPointerId(0)
                     lastTouchX = event.x
                     lastTouchY = event.y
+                    val view = glSurfaceView ?: return@setOnTouchListener true
+                    val dragX = (event.x / view.width) * 2f - 1f
+                    val dragY = -((event.y / view.height) * 2f - 1f)
+                    live2DManager?.onDrag(dragX, dragY)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -747,6 +839,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
                             offsetX += (dx / view.width) * 2.0f
                             offsetY -= (dy / view.height) * 2.0f
                             live2DManager?.setModelOffset(offsetX, offsetY)
+
+                            // Feed touch position to model drag for physics
+                            val dragX = (event.getX(pointerIndex) / view.width) * 2f - 1f
+                            val dragY = -((event.getY(pointerIndex) / view.height) * 2f - 1f)
+                            live2DManager?.onDrag(dragX, dragY)
 
                             lastTouchX = event.getX(pointerIndex)
                             lastTouchY = event.getY(pointerIndex)
@@ -768,6 +865,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     activePointerId = MotionEvent.INVALID_POINTER_ID
+                    live2DManager?.onDrag(0f, 0f)
                     true
                 }
                 else -> true
@@ -859,12 +957,36 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
         paramListView = listView
 
+        // --- Search field ---
+        val searchField = EditText(this).apply {
+            hint = "Search parameters..."
+            setHintTextColor(dimWhite)
+            setTextColor(textOnPanel)
+            textSize = 13f
+            background = GradientDrawable().apply {
+                setColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.panel_background))
+                cornerRadius = 8 * dp
+                setStroke((1 * dp).toInt(), dividerColor)
+            }
+            setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+            isSingleLine = true
+        }
+        listView.addView(searchField, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            setMargins(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+        })
+
         // --- Editor view (hidden initially) ---
         val editorView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
         paramEditorView = editorView
+
+        // Track cell wrappers for search filtering
+        val cellWrappers = mutableListOf<Pair<String, View>>() // displayName to wrapper
 
         // Build list cells
         for (param in params) {
@@ -930,8 +1052,25 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 )
             }
 
+            cellWrappers.add(param.displayName.lowercase() to cellWrapper)
             listView.addView(cellWrapper)
         }
+
+        // Wire up search filtering
+        searchField.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val query = s?.toString()?.lowercase()?.trim() ?: ""
+                for ((name, wrapper) in cellWrappers) {
+                    wrapper.visibility = if (query.isEmpty() || name.contains(query)) {
+                        View.VISIBLE
+                    } else {
+                        View.GONE
+                    }
+                }
+            }
+        })
 
         container.addView(listView)
         container.addView(editorView)
