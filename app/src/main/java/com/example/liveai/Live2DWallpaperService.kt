@@ -514,10 +514,10 @@ class Live2DWallpaperService : WallpaperService() {
                 EGL14.eglDestroyContext(eglDisplay, eglContext)
                 eglContext = EGL14.EGL_NO_CONTEXT
             }
-            if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                EGL14.eglTerminate(eglDisplay)
-                eglDisplay = EGL14.EGL_NO_DISPLAY
-            }
+            // Do NOT call eglTerminate — the display is shared across all
+            // engines via EGL_DEFAULT_DISPLAY. Terminating it invalidates
+            // every other engine's context, surfaces, textures, and FBOs.
+            eglDisplay = EGL14.EGL_NO_DISPLAY
             Log.d(TAG, "EGL destroyed")
         }
     }

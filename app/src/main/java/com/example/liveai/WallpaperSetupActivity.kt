@@ -804,10 +804,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
         if (setupMode == MODE_OVERLAY) {
             launchOverlayService()
         } else {
-            // Clean up our session before launching wallpaper picker
-            glSurfaceView?.onPause()
-            session?.let { Live2DSessionFactory.destroy(it) }
-            session = null
+            // Destroy GL resources on the GL thread before stopping it.
+            // Doing this on the main thread would delete resources from
+            // whatever EGL context is current there (e.g. the wallpaper engine's).
+            destroySessionOnGlThread()
 
             // Launch wallpaper picker
             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
@@ -830,16 +830,28 @@ class WallpaperSetupActivity : AppCompatActivity() {
     }
 
     private fun launchOverlayService() {
-        // Clean up our own session before launching overlay
-        glSurfaceView?.onPause()
-        session?.let { Live2DSessionFactory.destroy(it) }
-        session = null
+        destroySessionOnGlThread()
 
         OverlayService.requestRestart(this) {
             val intent = Intent(this, OverlayService::class.java)
             startForegroundService(intent)
         }
         finish()
+    }
+
+    /**
+     * Destroy the Live2D session on the GL thread so that glDelete* calls
+     * target the GLSurfaceView's EGL context — not the wallpaper engine's
+     * context which may be current on the main thread.
+     */
+    private fun destroySessionOnGlThread() {
+        val s = session ?: return
+        session = null
+        glSurfaceView?.queueEvent {
+            Live2DSessionFactory.destroy(s)
+            Log.d(TAG, "Session destroyed on GL thread")
+        }
+        glSurfaceView?.onPause()
     }
 
     override fun onPause() {
@@ -854,6 +866,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Session may already be destroyed by destroySessionOnGlThread.
+        // If not (e.g. back pressed without apply), clean up here.
+        // The GL thread is already stopped by onPause, so we can't
+        // queue to it — but at this point the activity's EGL context
+        // is also gone, so the glDelete calls are harmless no-ops.
         if (session != null) {
             try {
                 session?.let { Live2DSessionFactory.destroy(it) }
