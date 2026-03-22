@@ -4,13 +4,11 @@ import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.widget.ProgressBar
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
-import android.opengl.GLUtils
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
@@ -34,16 +32,13 @@ import com.example.liveai.audio.AudioDrivenMotion
 import com.example.liveai.audio.AudioMotionConfig
 import com.example.liveai.audio.AudioVolumeSource
 import com.example.liveai.live2d.CubismLifecycleManager
-import com.example.liveai.live2d.LAppDefine
 import com.example.liveai.live2d.LAppLive2DManager
+import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid
 import com.example.liveai.live2d.LAppPal
-import com.example.liveai.live2d.LAppTextureManager
 import com.example.liveai.live2d.Live2DSession
 import com.example.liveai.live2d.Live2DSessionFactory
+import com.example.liveai.live2d.GlStateGuard
 import com.example.liveai.live2d.PostProcessFilter
-import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -68,7 +63,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioVolumeSource: AudioVolumeSource? = null
     private var audioDrivenMotion: AudioDrivenMotion? = null
     private var session: Live2DSession? = null
-    private var cubismGeneration = 0L
     private var loadingOverlay: LinearLayout? = null
 
     private var modelScale = 1.0f
@@ -810,12 +804,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
         if (setupMode == MODE_OVERLAY) {
             launchOverlayService()
         } else {
-            // Clean up our session so the wallpaper service gets a fresh
-            // CubismFramework — the singleton can't be shared across GL contexts.
+            // Clean up our session before launching wallpaper picker
             glSurfaceView?.onPause()
             session?.let { Live2DSessionFactory.destroy(it) }
             session = null
-            CubismLifecycleManager.release()
 
             // Launch wallpaper picker
             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
@@ -838,12 +830,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
     }
 
     private fun launchOverlayService() {
-        // Clean up our own session first so we release our Cubism ref
-        // before the overlay service tries to acquire one
+        // Clean up our own session before launching overlay
         glSurfaceView?.onPause()
         session?.let { Live2DSessionFactory.destroy(it) }
         session = null
-        CubismLifecycleManager.release()
 
         OverlayService.requestRestart(this) {
             val intent = Intent(this, OverlayService::class.java)
@@ -865,47 +855,33 @@ class WallpaperSetupActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (session != null) {
-            // If another consumer (wallpaper engine) already took over the
-            // framework via forceReinitialize, our generation is stale.
-            // Only release if we still own the framework.
-            val weOwnFramework = CubismLifecycleManager.generation == cubismGeneration
             try {
                 session?.let { Live2DSessionFactory.destroy(it) }
             } catch (e: Exception) {
-                Log.w(TAG, "onDestroy: session destroy failed (framework already taken over?)", e)
+                Log.w(TAG, "onDestroy: session destroy failed", e)
             }
             session = null
-            if (weOwnFramework) {
-                CubismLifecycleManager.release()
-            }
         }
     }
 
     inner class SetupRenderer : GLSurfaceView.Renderer {
 
         private var modelLoaded = false
-        private var bgTextureId = 0
-        private var bgShaderProgram = 0
-        private var bgPositionHandle = 0
-        private var bgTexCoordHandle = 0
-        private var bgTextureHandle = 0
+        private var setupFrameCount = 0L
 
         override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
-            Log.d(TAG, "SetupRenderer.onSurfaceCreated — reinitializing Cubism for this GL context")
+            Log.d(TAG, "SetupRenderer.onSurfaceCreated")
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
             GLES20.glEnable(GLES20.GL_BLEND)
             GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
-            // Force full reinit — a wallpaper engine may still hold Cubism
-            // initialized on its EGL context. This GL context is different,
-            // so shaders must be recreated here.
-            cubismGeneration = CubismLifecycleManager.forceReinitialize(this@WallpaperSetupActivity)
+            // Ensure framework is started (idempotent). Shaders are per-thread
+            // (ThreadLocal), so this GL context gets its own compiled programs.
+            CubismLifecycleManager.ensureStarted(this@WallpaperSetupActivity)
+            // Clear any stale shaders from a previous EGL context on this GL thread
+            CubismRendererAndroid.reloadShader()
 
-            // Create session on the GL thread AFTER framework init so that
-            // the texture manager and model loading happen on the correct
-            // EGL context. This prevents the wallpaper engine's draw loop
-            // from recompiling Cubism shaders on its own stale context.
             session = Live2DSessionFactory.create(this@WallpaperSetupActivity)
             audioVolumeSource = session?.audioSource
             live2DManager = session?.manager
@@ -918,8 +894,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
             postProcess.init()
 
-            loadBackground()
-            initBgShader()
         }
 
         override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
@@ -948,132 +922,45 @@ class WallpaperSetupActivity : AppCompatActivity() {
         }
 
         override fun onDrawFrame(unused: GL10?) {
+            setupFrameCount++
             LAppPal.updateTime()
+
+            // Log mask diagnostics on first few frames for comparison with wallpaper
+            if (setupFrameCount <= 3) {
+                val diag = live2DManager?.getMaskDiagnostics() ?: "null manager"
+                Log.d(TAG, "SetupRenderer mask diagnostics: $diag")
+            }
 
             GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
             GLES20.glClearDepthf(1.0f)
 
-            // Draw background
-            GLES20.glDisable(GLES20.GL_BLEND)
-            drawBackground()
-
             // Draw model with optional post-processing
-            val useFilters = postProcess.isAnyFilterEnabled
+            val useFilters = postProcess.isAnyFilterEnabled && postProcess.canCapture()
             if (useFilters) {
                 postProcess.beginCapture()
                 GLES20.glEnable(GLES20.GL_BLEND)
                 GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                live2DManager?.onUpdate()
+                GlStateGuard.withGuard {
+                    live2DManager?.onUpdate()
+                }
                 postProcess.endCaptureAndApply()
             } else {
                 GLES20.glEnable(GLES20.GL_BLEND)
                 GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                live2DManager?.onUpdate()
+                GlStateGuard.withGuard {
+                    live2DManager?.onUpdate()
+                }
+            }
+
+            // Check for GL errors after rendering
+            if (setupFrameCount <= 5) {
+                val glErr = GLES20.glGetError()
+                if (glErr != GLES20.GL_NO_ERROR) {
+                    Log.e(TAG, "SetupRenderer GL error: 0x${Integer.toHexString(glErr)} at frame $setupFrameCount")
+                }
             }
         }
 
-        private fun loadBackground() {
-            try {
-                val file = File(filesDir, "saved_wallpaper.png")
-                if (!file.exists()) {
-                    Log.d(TAG, "No background image")
-                    return
-                }
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return
-
-                val texIds = IntArray(1)
-                GLES20.glGenTextures(1, texIds, 0)
-                bgTextureId = texIds[0]
-
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
-
-                Log.d(TAG, "Background loaded: ${bitmap.width}x${bitmap.height}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load background", e)
-            }
-        }
-
-        private fun initBgShader() {
-            val vs = """
-                attribute vec4 aPosition;
-                attribute vec2 aTexCoord;
-                varying vec2 vTexCoord;
-                void main() {
-                    gl_Position = aPosition;
-                    vTexCoord = aTexCoord;
-                }
-            """.trimIndent()
-
-            val fs = """
-                precision mediump float;
-                varying vec2 vTexCoord;
-                uniform sampler2D uTexture;
-                void main() {
-                    gl_FragColor = texture2D(uTexture, vTexCoord);
-                }
-            """.trimIndent()
-
-            val vertShader = compileShader(GLES20.GL_VERTEX_SHADER, vs)
-            val fragShader = compileShader(GLES20.GL_FRAGMENT_SHADER, fs)
-
-            bgShaderProgram = GLES20.glCreateProgram()
-            GLES20.glAttachShader(bgShaderProgram, vertShader)
-            GLES20.glAttachShader(bgShaderProgram, fragShader)
-            GLES20.glLinkProgram(bgShaderProgram)
-
-            bgPositionHandle = GLES20.glGetAttribLocation(bgShaderProgram, "aPosition")
-            bgTexCoordHandle = GLES20.glGetAttribLocation(bgShaderProgram, "aTexCoord")
-            bgTextureHandle = GLES20.glGetUniformLocation(bgShaderProgram, "uTexture")
-        }
-
-        private fun compileShader(type: Int, code: String): Int {
-            val shader = GLES20.glCreateShader(type)
-            GLES20.glShaderSource(shader, code)
-            GLES20.glCompileShader(shader)
-            return shader
-        }
-
-        private fun drawBackground() {
-            if (bgTextureId == 0) return
-
-            val vertices = floatArrayOf(
-                -1f, -1f, 0f, 1f,
-                 1f, -1f, 1f, 1f,
-                -1f,  1f, 0f, 0f,
-                 1f,  1f, 1f, 0f
-            )
-
-            val buffer = ByteBuffer.allocateDirect(vertices.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            buffer.put(vertices).position(0)
-
-            GLES20.glUseProgram(bgShaderProgram)
-
-            buffer.position(0)
-            GLES20.glEnableVertexAttribArray(bgPositionHandle)
-            GLES20.glVertexAttribPointer(bgPositionHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
-
-            buffer.position(2)
-            GLES20.glEnableVertexAttribArray(bgTexCoordHandle)
-            GLES20.glVertexAttribPointer(bgTexCoordHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
-
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
-            GLES20.glUniform1i(bgTextureHandle, 0)
-
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-
-            GLES20.glDisableVertexAttribArray(bgPositionHandle)
-            GLES20.glDisableVertexAttribArray(bgTexCoordHandle)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
-        }
     }
 }

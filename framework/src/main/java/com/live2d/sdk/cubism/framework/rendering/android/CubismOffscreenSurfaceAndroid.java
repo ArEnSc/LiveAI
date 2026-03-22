@@ -180,6 +180,14 @@ public class CubismOffscreenSurfaceAndroid {
         glGenFramebuffers(1, ret, 0);
         glBindFramebuffer(GL_FRAMEBUFFER, ret[0]);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this.colorBuffer[0], 0);
+
+        int fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
+            android.util.Log.e("CubismOffscreen", "Mask FBO incomplete: 0x" + Integer.toHexString(fboStatus)
+                + " size=" + displayBufferWidth + "x" + displayBufferHeight
+                + " texture=" + this.colorBuffer[0] + " fbo=" + ret[0]);
+        }
+
         glBindFramebuffer(GL_FRAMEBUFFER, tmpFBO[0]);
 
         this.renderTexture = new int[1];

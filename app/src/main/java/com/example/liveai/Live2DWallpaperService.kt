@@ -1,13 +1,11 @@
 package com.example.liveai
 
-import android.graphics.BitmapFactory
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.EGL14
 import android.opengl.GLES20
-import android.opengl.GLUtils
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
@@ -18,7 +16,9 @@ import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.Live2DSession
 import com.example.liveai.live2d.Live2DSessionFactory
+import com.example.liveai.live2d.GlStateGuard
 import com.example.liveai.live2d.PostProcessFilter
+import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -45,16 +45,8 @@ class Live2DWallpaperService : WallpaperService() {
         private var session: Live2DSession? = null
         private var modelLoaded = false
         private var glReady = false
-        private var cubismAcquired = false
-        private var cubismGeneration = 0L
         private var surfaceWidth = 0
         private var surfaceHeight = 0
-
-        private var bgTextureId = 0
-        private var bgShaderProgram = 0
-        private var bgPositionHandle = 0
-        private var bgTexCoordHandle = 0
-        private var bgTextureHandle = 0
 
         // Loading spinner GL state
         private var loadingShaderProgram = 0
@@ -80,7 +72,7 @@ class Live2DWallpaperService : WallpaperService() {
         private fun logState(event: String) {
             Log.d(TAG, "[$engineId] $event | " +
                 "glReady=$glReady modelLoaded=$modelLoaded visible=$visible " +
-                "isVisible=$isVisible cubismAcq=$cubismAcquired " +
+                "isVisible=$isVisible " +
                 "eglOk=${eglSurface != EGL14.EGL_NO_SURFACE} " +
                 "session=${session != null} manager=${live2DManager != null} " +
                 "surface=${surfaceWidth}x${surfaceHeight} frames=$frameCount")
@@ -134,21 +126,6 @@ class Live2DWallpaperService : WallpaperService() {
             this.visible = visible
             logState("onVisibilityChanged($visible)")
             if (visible) {
-                // If another consumer (e.g. SetupActivity) took over Cubism,
-                // our GL resources are stale. Re-setup everything on our EGL
-                // context so the wallpaper resumes rendering.
-                if (CubismLifecycleManager.generation != cubismGeneration) {
-                    Log.d(TAG, "[$engineId] Generation stale (ours=$cubismGeneration, current=${CubismLifecycleManager.generation}) — re-initializing")
-                    setupEverything(surfaceHolder)
-                    if (glReady && surfaceWidth > 0 && surfaceHeight > 0 && makeCurrent()) {
-                        GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
-                        live2DManager?.setWindowSize(surfaceWidth, surfaceHeight)
-                        postProcess.resize(surfaceWidth, surfaceHeight)
-                        if (!modelLoaded) {
-                            loadModel()
-                        }
-                    }
-                }
                 ensureDrawLoop()
             } else {
                 handler.removeCallbacks(drawRunnable)
@@ -195,12 +172,12 @@ class Live2DWallpaperService : WallpaperService() {
             Log.d(TAG, "[$engineId] makeCurrent OK after EGL init")
 
             try {
-                // Force full framework reinit — each wallpaper engine has its own
-                // EGL context, so Cubism GL resources must be recreated here.
-                Log.d(TAG, "[$engineId] Force-reinitializing CubismFramework for new EGL context...")
-                cubismGeneration = CubismLifecycleManager.forceReinitialize(this@Live2DWallpaperService)
-                cubismAcquired = true
-                Log.d(TAG, "[$engineId] CubismFramework reinitialized (gen=$cubismGeneration)")
+                // Ensure framework is started (idempotent). Shaders are per-thread
+                // (ThreadLocal), so each EGL context gets its own compiled programs.
+                CubismLifecycleManager.ensureStarted(this@Live2DWallpaperService)
+                // Delete any stale shaders from a previous EGL context on this thread
+                CubismRendererAndroid.reloadShader()
+                Log.d(TAG, "[$engineId] CubismFramework ready")
 
                 GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
                 GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
@@ -239,8 +216,6 @@ class Live2DWallpaperService : WallpaperService() {
                 postProcess.init()
                 Log.d(TAG, "[$engineId] PostProcess initialized")
 
-                loadBackgroundWallpaper()
-                initBgShader()
                 initLoadingShader()
                 loadingStartTime = System.nanoTime()
 
@@ -252,29 +227,24 @@ class Live2DWallpaperService : WallpaperService() {
         }
 
         private fun tearDown() {
-            Log.d(TAG, "[$engineId] tearDown START session=${session != null} cubismAcq=$cubismAcquired")
+            Log.d(TAG, "[$engineId] tearDown START session=${session != null}")
             if (session != null) {
+                // Make OUR context current before releasing GL resources,
+                // otherwise we'd delete texture/FBO IDs on whatever context
+                // is currently active (e.g. a newer engine's context).
+                if (eglContext != EGL14.EGL_NO_CONTEXT) {
+                    makeCurrent()
+                }
                 try {
                     session?.let { Live2DSessionFactory.destroy(it) }
                 } catch (e: Exception) {
-                    // Framework may have been torn down by another consumer's
-                    // forceReinitialize — releaseModel can NPE on stale state.
-                    Log.w(TAG, "[$engineId] tearDown: session destroy failed (framework stale?)", e)
+                    Log.w(TAG, "[$engineId] tearDown: session destroy failed", e)
                 }
                 session = null
             }
             live2DManager = null
             modelLoaded = false
             glReady = false
-
-            if (cubismAcquired) {
-                try {
-                    CubismLifecycleManager.release()
-                } catch (e: Exception) {
-                    Log.w(TAG, "[$engineId] tearDown: release failed", e)
-                }
-                cubismAcquired = false
-            }
 
             destroyEGL()
             Log.d(TAG, "[$engineId] tearDown COMPLETE")
@@ -320,21 +290,12 @@ class Live2DWallpaperService : WallpaperService() {
                 }
                 return
             }
-            // Another consumer (e.g. SetupActivity) took over the Cubism framework.
-            // Our GL resources are stale — stop drawing to avoid corrupting their state.
-            if (CubismLifecycleManager.generation != cubismGeneration) {
-                if (frameCount % 300 == 0L || frameCount <= 5) {
-                    Log.w(TAG, "[$engineId] drawFrame SKIPPED: Cubism generation changed (ours=$cubismGeneration, current=${CubismLifecycleManager.generation})")
-                }
-                return
-            }
             if (!makeCurrent()) {
                 Log.e(TAG, "[$engineId] drawFrame: makeCurrent FAILED at frame $frameCount")
                 return
             }
 
             frameCount++
-            // Log first 5 frames, then every 300th (~5 seconds)
             if (frameCount <= 5 || frameCount % 300 == 0L) {
                 Log.d(TAG, "[$engineId] drawFrame #$frameCount modelLoaded=$modelLoaded surface=${surfaceWidth}x${surfaceHeight}")
             }
@@ -348,39 +309,35 @@ class Live2DWallpaperService : WallpaperService() {
             if (!modelLoaded) {
                 drawLoadingSpinner()
             } else {
-                // Draw the user's original wallpaper as background
-                GLES20.glDisable(GLES20.GL_BLEND)
-                drawBackground()
+                if (frameCount <= 3) {
+                    val diag = live2DManager?.getMaskDiagnostics() ?: "null manager"
+                    Log.d(TAG, "[$engineId] mask diagnostics: $diag")
+                }
 
-                // Hold the read lock while calling onUpdate so that
-                // forceReinitialize (which takes the write lock) blocks
-                // until this frame finishes — preventing shader corruption.
-                val readLock = CubismLifecycleManager.frameworkLock.readLock()
-                if (!readLock.tryLock()) return  // forceReinitialize in progress, skip frame
+                GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
 
-                try {
-                    // Re-check generation inside the lock
-                    if (CubismLifecycleManager.generation != cubismGeneration) return
-
-                    val useFilters = postProcess.isAnyFilterEnabled
-                    if (useFilters) {
-                        postProcess.beginCapture()
-                        GLES20.glEnable(GLES20.GL_BLEND)
-                        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                        live2DManager?.onUpdate()
-                        postProcess.endCaptureAndApply()
-                    } else {
-                        GLES20.glEnable(GLES20.GL_BLEND)
-                        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                val useFilters = postProcess.isAnyFilterEnabled && postProcess.canCapture()
+                if (useFilters) {
+                    postProcess.beginCapture()
+                    GLES20.glEnable(GLES20.GL_BLEND)
+                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                    GlStateGuard.withGuard {
                         live2DManager?.onUpdate()
                     }
-                } catch (e: Exception) {
-                    // CubismIdManager can be null if the framework is mid-teardown
-                    // on another thread despite our lock. Stop drawing until re-setup.
-                    Log.w(TAG, "[$engineId] onUpdate failed (framework stale?), stopping draw", e)
-                    glReady = false
-                } finally {
-                    readLock.unlock()
+                    postProcess.endCaptureAndApply()
+                } else {
+                    GLES20.glEnable(GLES20.GL_BLEND)
+                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                    GlStateGuard.withGuard {
+                        live2DManager?.onUpdate()
+                    }
+                }
+
+                if (frameCount <= 5) {
+                    val glErr = GLES20.glGetError()
+                    if (glErr != GLES20.GL_NO_ERROR) {
+                        Log.e(TAG, "[$engineId] GL error after render: 0x${Integer.toHexString(glErr)} at frame $frameCount")
+                    }
                 }
             }
 
@@ -394,109 +351,11 @@ class Live2DWallpaperService : WallpaperService() {
             }
         }
 
-        // --- Background ---
-
-        private fun loadBackgroundWallpaper() {
-            try {
-                val file = java.io.File(this@Live2DWallpaperService.filesDir, "saved_wallpaper.png")
-                if (!file.exists()) {
-                    Log.d(TAG, "No saved wallpaper found")
-                    return
-                }
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return
-
-                val texIds = IntArray(1)
-                GLES20.glGenTextures(1, texIds, 0)
-                bgTextureId = texIds[0]
-
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
-
-                Log.d(TAG, "Background wallpaper loaded: ${bitmap.width}x${bitmap.height}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load wallpaper", e)
-            }
-        }
-
-        private fun initBgShader() {
-            val vertexShader = """
-                attribute vec4 aPosition;
-                attribute vec2 aTexCoord;
-                varying vec2 vTexCoord;
-                void main() {
-                    gl_Position = aPosition;
-                    vTexCoord = aTexCoord;
-                }
-            """.trimIndent()
-
-            val fragmentShader = """
-                precision mediump float;
-                varying vec2 vTexCoord;
-                uniform sampler2D uTexture;
-                void main() {
-                    gl_FragColor = texture2D(uTexture, vTexCoord);
-                }
-            """.trimIndent()
-
-            val vs = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader)
-            val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader)
-
-            bgShaderProgram = GLES20.glCreateProgram()
-            GLES20.glAttachShader(bgShaderProgram, vs)
-            GLES20.glAttachShader(bgShaderProgram, fs)
-            GLES20.glLinkProgram(bgShaderProgram)
-
-            bgPositionHandle = GLES20.glGetAttribLocation(bgShaderProgram, "aPosition")
-            bgTexCoordHandle = GLES20.glGetAttribLocation(bgShaderProgram, "aTexCoord")
-            bgTextureHandle = GLES20.glGetUniformLocation(bgShaderProgram, "uTexture")
-        }
-
         private fun compileShader(type: Int, code: String): Int {
             val shader = GLES20.glCreateShader(type)
             GLES20.glShaderSource(shader, code)
             GLES20.glCompileShader(shader)
             return shader
-        }
-
-        private fun drawBackground() {
-            if (bgTextureId == 0) return
-
-            val vertices = floatArrayOf(
-                -1f, -1f, 0f, 1f,
-                 1f, -1f, 1f, 1f,
-                -1f,  1f, 0f, 0f,
-                 1f,  1f, 1f, 0f
-            )
-
-            val buffer = ByteBuffer.allocateDirect(vertices.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            buffer.put(vertices).position(0)
-
-            GLES20.glUseProgram(bgShaderProgram)
-
-            buffer.position(0)
-            GLES20.glEnableVertexAttribArray(bgPositionHandle)
-            GLES20.glVertexAttribPointer(bgPositionHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
-
-            buffer.position(2)
-            GLES20.glEnableVertexAttribArray(bgTexCoordHandle)
-            GLES20.glVertexAttribPointer(bgTexCoordHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
-
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
-            GLES20.glUniform1i(bgTextureHandle, 0)
-
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-
-            GLES20.glDisableVertexAttribArray(bgPositionHandle)
-            GLES20.glDisableVertexAttribArray(bgTexCoordHandle)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
         }
 
         // --- Loading spinner ---
@@ -591,6 +450,7 @@ class Live2DWallpaperService : WallpaperService() {
                 EGL14.EGL_BLUE_SIZE, 8,
                 EGL14.EGL_ALPHA_SIZE, 8,
                 EGL14.EGL_DEPTH_SIZE, 16,
+                EGL14.EGL_STENCIL_SIZE, 8,
                 EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
                 EGL14.EGL_NONE
             )

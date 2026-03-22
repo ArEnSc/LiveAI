@@ -55,7 +55,9 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         GLES20.glEnable(GL_BLEND);
         GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-        CubismLifecycleManager.INSTANCE.initialize();
+        // Clear any stale shaders from a previous EGL context on this GL thread.
+        // New shaders will be compiled lazily on first draw.
+        com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid.reloadShader();
 
         postProcess.init();
 
@@ -91,11 +93,15 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
 
         boolean usePostProcess = postProcess.isAnyFilterEnabled() && postProcess.canCapture();
 
+        GlStateGuard guard = GlStateGuard.Companion.getOrCreate();
+
         if (usePostProcess) {
             // Render model to FBO
             postProcess.beginCapture();
             GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            guard.save();
             manager.onUpdate();
+            guard.restore();
 
             // Clear the screen, then apply filters from FBO
             postProcess.endCaptureAndApply();
@@ -106,7 +112,9 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glClearDepthf(1.0f);
             GLES20.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            guard.save();
             manager.onUpdate();
+            guard.restore();
         }
 
         if (LAppDefine.DEBUG_DRAW_BOUNDS) {

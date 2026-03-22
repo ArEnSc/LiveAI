@@ -37,23 +37,26 @@ class CubismShaderAndroid {
     }
 
     /**
-     * Get this singleton instance.
+     * Get the per-thread instance. Each GL thread gets its own compiled shaders,
+     * so multiple EGL contexts can coexist without invalidating each other's
+     * shader program IDs.
      *
-     * @return singleton instance
+     * @return thread-local instance
      */
     public static CubismShaderAndroid getInstance() {
-        if (s_instance == null) {
-            s_instance = new CubismShaderAndroid();
+        CubismShaderAndroid instance = s_threadInstance.get();
+        if (instance == null) {
+            instance = new CubismShaderAndroid();
+            s_threadInstance.set(instance);
         }
-
-        return s_instance;
+        return instance;
     }
 
     /**
-     * Delete this singleton instance.
+     * Delete this thread's instance. Only affects the calling thread's shaders.
      */
     public static void deleteInstance() {
-        s_instance = null;
+        s_threadInstance.remove();
     }
 
     /**
@@ -348,9 +351,10 @@ class CubismShaderAndroid {
     }
 
     /**
-     * Singleton instance.
+     * Per-thread instance. Each GL thread compiles its own shader programs
+     * so they are valid for that thread's EGL context.
      */
-    private static CubismShaderAndroid s_instance;
+    private static final ThreadLocal<CubismShaderAndroid> s_threadInstance = new ThreadLocal<>();
 
     /**
      * Tegra support. Drawing with Extended Method.

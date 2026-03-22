@@ -95,6 +95,11 @@ public class LAppLive2DManager {
         model.draw(projection);
     }
 
+    public String getMaskDiagnostics() {
+        if (model == null) return "no model";
+        return model.getMaskDiagnostics();
+    }
+
     public float getCanvasWidth() {
         if (model == null || model.getModel() == null) return 0;
         return model.getModel().getCanvasWidth();

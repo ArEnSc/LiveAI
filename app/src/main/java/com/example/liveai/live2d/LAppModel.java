@@ -98,6 +98,12 @@ public class LAppModel extends CubismUserModel {
         delete();
     }
 
+    public String getMaskDiagnostics() {
+        CubismRendererAndroid renderer = this.<CubismRendererAndroid>getRenderer();
+        if (renderer == null) return "no renderer";
+        return renderer.getMaskDiagnostics();
+    }
+
     public void update() {
         float deltaTimeSeconds = LAppPal.getDeltaTime();
         userTimeSeconds += deltaTimeSeconds;

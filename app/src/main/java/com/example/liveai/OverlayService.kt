@@ -88,7 +88,7 @@ class OverlayService : Service() {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, buildNotification())
 
-            CubismLifecycleManager.acquire(this)
+            CubismLifecycleManager.ensureStarted(this)
 
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
             addOverlayView()
@@ -305,8 +305,6 @@ class OverlayService : Service() {
 
         session?.let { Live2DSessionFactory.destroy(it) }
         session = null
-
-        CubismLifecycleManager.release()
 
         isRunning = false
 

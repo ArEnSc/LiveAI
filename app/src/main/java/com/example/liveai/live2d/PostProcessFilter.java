@@ -256,6 +256,19 @@ public class PostProcessFilter {
         GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
             GLES20.GL_TEXTURE_2D, fbo2TextureId, 0);
 
+        // Verify FBO completeness
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboId);
+        int status1 = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER);
+        if (status1 != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            android.util.Log.e("PostProcessFilter", "FBO 1 incomplete: 0x" + Integer.toHexString(status1));
+        }
+
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo2Id);
+        int status2 = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER);
+        if (status2 != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            android.util.Log.e("PostProcessFilter", "FBO 2 incomplete: 0x" + Integer.toHexString(status2));
+        }
+
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
     }

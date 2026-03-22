@@ -459,6 +459,43 @@ public class CubismRendererAndroid extends CubismRenderer {
     }
 
     /**
+     * Get diagnostic information about clipping masks.
+     *
+     * @return a string describing the current mask configuration, or "no clipping" if masks are not used.
+     */
+    public String getMaskDiagnostics() {
+        if (clippingManager == null) {
+            return "no clipping manager";
+        }
+        int maskCount = 0;
+        for (Object ctx : clippingManager.getClippingContextListForDraw()) {
+            if (ctx != null) maskCount++;
+        }
+        int renderTexCount = clippingManager.getRenderTextureCount();
+        float bufW = clippingManager.getClippingMaskBufferSize().x;
+        float bufH = clippingManager.getClippingMaskBufferSize().y;
+        int surfaceCount = offscreenSurfaces != null ? offscreenSurfaces.length : 0;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("masks=").append(maskCount);
+        sb.append(" renderTex=").append(renderTexCount);
+        sb.append(" bufSize=").append((int) bufW).append("x").append((int) bufH);
+        sb.append(" surfaces=").append(surfaceCount);
+
+        // Check each offscreen surface validity
+        if (offscreenSurfaces != null) {
+            for (int i = 0; i < offscreenSurfaces.length; i++) {
+                boolean valid = offscreenSurfaces[i] != null && offscreenSurfaces[i].isValid();
+                if (!valid) {
+                    sb.append(" INVALID_SURFACE[").append(i).append("]");
+                }
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
      * テクスチャマップにバインドされたテクスチャIDを取得する。
      * バインドされていなければダミーとして-1を返します。
      *
