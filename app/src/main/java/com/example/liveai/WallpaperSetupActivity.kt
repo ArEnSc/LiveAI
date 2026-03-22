@@ -43,7 +43,9 @@ import com.example.liveai.live2d.Live2DSessionFactory
 import com.example.liveai.live2d.GlStateGuard
 import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
+import com.example.liveai.interaction.TouchInteractionHandler
 import com.example.liveai.interaction.ZoneEditorController
+import com.example.liveai.interaction.ZoneRepository
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -82,6 +84,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioMotionSpeed = 1.0f
     private var rootLayout: FrameLayout? = null
     private var zoneEditorController: ZoneEditorController? = null
+    private var touchHandler: TouchInteractionHandler? = null
+    private var hintLabel: TextView? = null
+    private var activeTabIndex = 0
+    private var panelCollapsed = false
     private var controlsPanel: LinearLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -158,8 +164,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        // Hint text floating above panel
-        val hintLabel = TextView(this).apply {
+        // Hint text floating above panel — tap to collapse/expand
+        hintLabel = TextView(this).apply {
             text = "Drag to move  |  Pinch to zoom"
             setTextColor(ContextCompat.getColor(this@WallpaperSetupActivity, R.color.text_on_panel_hint))
             textSize = 12f
@@ -170,6 +176,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
             }
             background = hintBg
             setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { togglePanel() }
         }
         val hintParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -193,6 +202,30 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         setContentView(root)
         setupTouchHandling()
+    }
+
+    private fun togglePanel() {
+        val panel = controlsPanel ?: return
+        panelCollapsed = !panelCollapsed
+        if (panelCollapsed) {
+            panel.visibility = View.GONE
+            hintLabel?.text = if (activeTabIndex == 3) {
+                "Tap to preview interaction and drag zones"
+            } else {
+                "Tap to show controls"
+            }
+        } else {
+            panel.visibility = View.VISIBLE
+            updateHintForTab(activeTabIndex)
+        }
+    }
+
+    private fun updateHintForTab(index: Int) {
+        hintLabel?.text = if (index == 3) {
+            "Drag zones to interact with model"
+        } else {
+            "Drag to move  |  Pinch to zoom"
+        }
     }
 
     private fun buildControlsPanel(): LinearLayout {
@@ -310,6 +343,20 @@ class WallpaperSetupActivity : AppCompatActivity() {
         val tabContents = mutableListOf<LinearLayout>()
 
         fun selectTab(index: Int) {
+            if (activeTabIndex == 3 && index != 3) {
+                val zones = ZoneRepository.loadZones(this@WallpaperSetupActivity)
+                val allParamIds = zones.flatMap { zone ->
+                    zone.bindings.map { it.paramId }
+                }.toSet()
+                if (allParamIds.isNotEmpty()) {
+                    glSurfaceView?.queueEvent {
+                        live2DManager?.clearInteractionParams(allParamIds)
+                    }
+                }
+                touchHandler = null
+            }
+
+            activeTabIndex = index
             tabContents.forEachIndexed { i, content ->
                 content.visibility = if (i == index) View.VISIBLE else View.GONE
             }
@@ -322,6 +369,15 @@ class WallpaperSetupActivity : AppCompatActivity() {
                     tv.setTypeface(null, Typeface.NORMAL)
                 }
             }
+
+            if (!panelCollapsed) {
+                updateHintForTab(index)
+            }
+
+            if (index == 3) {
+                rebuildTouchHandler()
+            }
+
             // Animate indicator position
             val selectedTab = tabTextViews[index]
             selectedTab.post {
@@ -645,7 +701,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             onPanelVisibility = { visible ->
                 controlsPanel?.visibility = if (visible) View.VISIBLE else View.GONE
             },
-            onZonesSaved = { /* zones auto-persist via ZoneRepository */ }
+            onZonesSaved = { rebuildTouchHandler() }
         )
         zoneEditorController?.buildZoneList()
 
@@ -737,6 +793,15 @@ class WallpaperSetupActivity : AppCompatActivity() {
         return outerWrapper
     }
 
+    private fun rebuildTouchHandler() {
+        val mgr = live2DManager ?: run {
+            touchHandler = null
+            return
+        }
+        val zones = ZoneRepository.loadZones(this)
+        touchHandler = TouchInteractionHandler(mgr, zones)
+    }
+
     private fun setupTouchHandling() {
         var lastTouchX = 0f
         var lastTouchY = 0f
@@ -765,6 +830,10 @@ class WallpaperSetupActivity : AppCompatActivity() {
         )
 
         glSurfaceView?.setOnTouchListener { _, event ->
+            if (activeTabIndex == 3) {
+                return@setOnTouchListener touchHandler?.onTouchEvent(event) == true
+            }
+
             scaleDetector.onTouchEvent(event)
 
             when (event.actionMasked) {
@@ -1365,6 +1434,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         override fun onDrawFrame(unused: GL10?) {
             setupFrameCount++
             LAppPal.updateTime()
+            touchHandler?.updateSpring()
 
             // Log mask diagnostics on first few frames for comparison with wallpaper
             if (setupFrameCount <= 3) {
