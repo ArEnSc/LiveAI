@@ -19,10 +19,10 @@ import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.Live2DSession
 import com.example.liveai.live2d.Live2DSessionFactory
 import com.example.liveai.live2d.GlStateGuard
+import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
+import com.example.liveai.live2d.toFloatBuffer
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 class Live2DWallpaperService : WallpaperService() {
 
@@ -163,7 +163,6 @@ class Live2DWallpaperService : WallpaperService() {
                 return
             }
 
-            // Tear down previous state if any (handles engine reuse)
             tearDown()
 
             try {
@@ -181,70 +180,67 @@ class Live2DWallpaperService : WallpaperService() {
             Log.d(TAG, "[$engineId] makeCurrent OK after EGL init")
 
             try {
-                // Ensure framework is started (idempotent). Shaders are per-thread
-                // (ThreadLocal), so each EGL context gets its own compiled programs.
-                CubismLifecycleManager.ensureStarted(this@Live2DWallpaperService)
-                // Delete any stale shaders from a previous EGL context on this thread
-                CubismRendererAndroid.reloadShader()
-                Log.d(TAG, "[$engineId] CubismFramework ready")
-
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-                GLES20.glEnable(GLES20.GL_BLEND)
-                GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-
-                Log.d(TAG, "[$engineId] Creating Live2DSession...")
-                session = Live2DSessionFactory.create(this@Live2DWallpaperService)
-                live2DManager = session?.manager
-                live2DManager?.setFitToScreen(true)
-                Log.d(TAG, "[$engineId] Session created, manager=${live2DManager != null}")
-
-                // Load saved position/scale settings
-                val prefs = getSharedPreferences(WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE)
-                val scale = prefs.getFloat(WallpaperSetupActivity.KEY_SCALE, 1.0f)
-                val offX = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_X, 0.0f)
-                val offY = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_Y, 0.0f)
-                live2DManager?.setModelScale(scale)
-                live2DManager?.setModelOffset(offX, offY)
-
-                // Load saved parameter overrides
-                val paramPrefs = getSharedPreferences(WallpaperSetupActivity.PARAM_OVERRIDES_PREFS, MODE_PRIVATE)
-                val overrides = paramPrefs.all
-                    .filterValues { it is Float }
-                    .mapValues { it.value as Float }
-                if (overrides.isNotEmpty()) {
-                    live2DManager?.setAllParameterOverrides(overrides)
-                    Log.d(TAG, "[$engineId] Loaded ${overrides.size} parameter overrides")
-                }
-                Log.d(TAG, "[$engineId] Settings: scale=$scale offX=$offX offY=$offY")
-
-                // Load filter settings
-                val filterPrefs = getSharedPreferences(FilterSettings.PREFS_NAME, MODE_PRIVATE)
-                postProcess.isSaturationEnabled = filterPrefs.getBoolean(FilterSettings.KEY_SATURATION, false)
-                postProcess.isOutlineEnabled = filterPrefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
-                postProcess.saturationAmount = filterPrefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
-                postProcess.outlineThickness = filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
-                postProcess.setOutlineColor(
-                    filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
-                    filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
-                    filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
-                    1.0f
-                )
-
-                LAppPal.updateTime()
-                postProcess.init()
-                Log.d(TAG, "[$engineId] PostProcess initialized")
-
-                loadBackgroundWallpaper()
-                initBgShader()
-                initLoadingShader()
-                loadingStartTime = System.nanoTime()
+                setupCubismFramework()
+                createSession()
+                restoreSettings()
+                initializeRendering()
 
                 glReady = true
                 Log.d(TAG, "[$engineId] setupEverything COMPLETE — glReady=true")
             } catch (e: Exception) {
                 Log.e(TAG, "[$engineId] setupEverything EXCEPTION", e)
             }
+        }
+
+        private fun setupCubismFramework() {
+            CubismLifecycleManager.ensureStarted(this@Live2DWallpaperService)
+            CubismRendererAndroid.reloadShader()
+            Log.d(TAG, "[$engineId] CubismFramework ready")
+
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        }
+
+        private fun createSession() {
+            Log.d(TAG, "[$engineId] Creating Live2DSession...")
+            session = Live2DSessionFactory.create(this@Live2DWallpaperService)
+            live2DManager = session?.manager
+            live2DManager?.setFitToScreen(true)
+            Log.d(TAG, "[$engineId] Session created, manager=${live2DManager != null}")
+        }
+
+        private fun restoreSettings() {
+            val prefs = getSharedPreferences(WallpaperSetupActivity.PREFS_NAME, MODE_PRIVATE)
+            val scale = prefs.getFloat(WallpaperSetupActivity.KEY_SCALE, 1.0f)
+            val offX = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_X, 0.0f)
+            val offY = prefs.getFloat(WallpaperSetupActivity.KEY_OFFSET_Y, 0.0f)
+            live2DManager?.setModelScale(scale)
+            live2DManager?.setModelOffset(offX, offY)
+
+            val paramPrefs = getSharedPreferences(WallpaperSetupActivity.PARAM_OVERRIDES_PREFS, MODE_PRIVATE)
+            val overrides = paramPrefs.all
+                .filterValues { it is Float }
+                .mapValues { it.value as Float }
+            if (overrides.isNotEmpty()) {
+                live2DManager?.setAllParameterOverrides(overrides)
+                Log.d(TAG, "[$engineId] Loaded ${overrides.size} parameter overrides")
+            }
+            Log.d(TAG, "[$engineId] Settings: scale=$scale offX=$offX offY=$offY")
+
+            FilterSettings.loadInto(this@Live2DWallpaperService, postProcess)
+        }
+
+        private fun initializeRendering() {
+            LAppPal.updateTime()
+            postProcess.init()
+            Log.d(TAG, "[$engineId] PostProcess initialized")
+
+            loadBackgroundWallpaper()
+            initBgShader()
+            initLoadingShader()
+            loadingStartTime = System.nanoTime()
         }
 
         private fun tearDown() {
@@ -277,8 +273,8 @@ class Live2DWallpaperService : WallpaperService() {
                 return
             }
 
-            Log.d(TAG, "[$engineId] loadModel: calling loadModel(\"Alice/\", \"Alice Cross Tensor.model3.json\")...")
-            live2DManager?.loadModel("Alice/", "Alice Cross Tensor.model3.json")
+            Log.d(TAG, "[$engineId] loadModel: calling loadModel(\"${ModelConfig.DEFAULT_MODEL_DIR}\", \"${ModelConfig.DEFAULT_MODEL_FILE}\")...")
+            live2DManager?.loadModel(ModelConfig.DEFAULT_MODEL_DIR, ModelConfig.DEFAULT_MODEL_FILE)
 
             // Validate the model actually loaded
             val cw = live2DManager?.getCanvasWidth() ?: 0f
@@ -341,21 +337,8 @@ class Live2DWallpaperService : WallpaperService() {
 
                 GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
 
-                val useFilters = postProcess.isAnyFilterEnabled && postProcess.canCapture()
-                if (useFilters) {
-                    postProcess.beginCapture()
-                    GLES20.glEnable(GLES20.GL_BLEND)
-                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                    GlStateGuard.withGuard {
-                        live2DManager?.onUpdate()
-                    }
-                    postProcess.endCaptureAndApply()
-                } else {
-                    GLES20.glEnable(GLES20.GL_BLEND)
-                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                    GlStateGuard.withGuard {
-                        live2DManager?.onUpdate()
-                    }
+                renderModelWithFilters(postProcess) {
+                    live2DManager?.onUpdate()
                 }
 
                 if (frameCount <= 5) {
@@ -376,12 +359,25 @@ class Live2DWallpaperService : WallpaperService() {
             }
         }
 
-        private fun compileShader(type: Int, code: String): Int {
-            val shader = GLES20.glCreateShader(type)
-            GLES20.glShaderSource(shader, code)
-            GLES20.glCompileShader(shader)
-            return shader
+        private fun renderModelWithFilters(
+            postProcess: PostProcessFilter,
+            onRender: () -> Unit
+        ) {
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+
+            val useFilters = postProcess.isAnyFilterEnabled && postProcess.canCapture()
+            if (useFilters) {
+                postProcess.beginCapture()
+                GlStateGuard.withGuard(onRender)
+                postProcess.endCaptureAndApply()
+            } else {
+                GlStateGuard.withGuard(onRender)
+            }
         }
+
+        private fun compileShader(type: Int, code: String): Int =
+            com.example.liveai.live2d.GLUtils.compileShader(type, code)
 
         // --- Background ---
 
@@ -456,10 +452,7 @@ class Live2DWallpaperService : WallpaperService() {
                  1f,  1f, 1f, 0f
             )
 
-            val buffer = ByteBuffer.allocateDirect(vertices.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            buffer.put(vertices).position(0)
+            val buffer = vertices.toFloatBuffer()
 
             GLES20.glUseProgram(bgShaderProgram)
 
@@ -534,10 +527,7 @@ class Live2DWallpaperService : WallpaperService() {
                  1f,  1f
             )
 
-            val buffer = ByteBuffer.allocateDirect(vertices.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            buffer.put(vertices).position(0)
+            val buffer = vertices.toFloatBuffer()
 
             GLES20.glEnable(GLES20.GL_BLEND)
             GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)

@@ -38,6 +38,7 @@ import com.example.liveai.live2d.LAppPal
 import com.example.liveai.live2d.Live2DSession
 import com.example.liveai.live2d.Live2DSessionFactory
 import com.example.liveai.live2d.GlStateGuard
+import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -87,18 +88,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
         offsetX = prefs.getFloat(KEY_OFFSET_X, 0.0f)
         offsetY = prefs.getFloat(KEY_OFFSET_Y, 0.0f)
 
-        val filterPrefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
-        postProcess.isSaturationEnabled = filterPrefs.getBoolean(FilterSettings.KEY_SATURATION, false)
-        postProcess.isOutlineEnabled = filterPrefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
-        postProcess.saturationAmount = filterPrefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
-        postProcess.outlineThickness = filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
-        postProcess.setOutlineColor(
-            filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
-            filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
-            filterPrefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
-            1.0f
-        )
+        FilterSettings.loadInto(this, postProcess)
 
+        val filterPrefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
         audioMotionEnabled = filterPrefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true)
         audioMotionIntensity = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f)
         audioMotionSpeed = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
@@ -1263,7 +1255,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
             if (!modelLoaded) {
                 Log.d(TAG, "SetupRenderer: loading model...")
-                live2DManager?.loadModel("Alice/", "Alice Cross Tensor.model3.json")
+                live2DManager?.loadModel(ModelConfig.DEFAULT_MODEL_DIR, ModelConfig.DEFAULT_MODEL_FILE)
                 val cw = live2DManager?.getCanvasWidth() ?: 0f
                 val ch = live2DManager?.getCanvasHeight() ?: 0f
                 Log.d(TAG, "SetupRenderer: model loaded, canvas=${cw}x${ch}")

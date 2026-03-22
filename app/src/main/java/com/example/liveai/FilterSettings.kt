@@ -1,5 +1,8 @@
 package com.example.liveai
 
+import android.content.Context
+import com.example.liveai.live2d.PostProcessFilter
+
 object FilterSettings {
     const val PREFS_NAME = "filter_settings"
     const val KEY_SATURATION = "saturation_enabled"
@@ -14,4 +17,18 @@ object FilterSettings {
     const val KEY_AUDIO_MOTION_ENABLED = "audio_motion_enabled"
     const val KEY_AUDIO_MOTION_INTENSITY = "audio_motion_intensity"
     const val KEY_AUDIO_MOTION_SPEED = "audio_motion_speed"
+
+    fun loadInto(context: Context, postProcess: PostProcessFilter) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        postProcess.isSaturationEnabled = prefs.getBoolean(KEY_SATURATION, false)
+        postProcess.isOutlineEnabled = prefs.getBoolean(KEY_OUTLINE, false)
+        postProcess.saturationAmount = prefs.getFloat(KEY_SATURATION_AMOUNT, 1.5f)
+        postProcess.outlineThickness = prefs.getFloat(KEY_OUTLINE_THICKNESS, 1.5f)
+        postProcess.setOutlineColor(
+            prefs.getFloat(KEY_OUTLINE_COLOR_R, 0.0f),
+            prefs.getFloat(KEY_OUTLINE_COLOR_G, 0.0f),
+            prefs.getFloat(KEY_OUTLINE_COLOR_B, 0.0f),
+            1.0f
+        )
+    }
 }

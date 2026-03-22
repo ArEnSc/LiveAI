@@ -23,6 +23,7 @@ import com.example.liveai.live2d.CubismLifecycleManager
 import com.example.liveai.live2d.Live2DRenderer
 import com.example.liveai.live2d.Live2DSession
 import com.example.liveai.live2d.Live2DSessionFactory
+import com.example.liveai.live2d.ModelConfig
 
 class OverlayService : Service() {
 
@@ -126,8 +127,8 @@ class OverlayService : Service() {
 
         live2DRenderer = Live2DRenderer(
             session!!.manager,
-            "Alice/",
-            "Alice Cross Tensor.model3.json"
+            ModelConfig.DEFAULT_MODEL_DIR,
+            ModelConfig.DEFAULT_MODEL_FILE
         )
 
         live2DRenderer?.setOnModelLoadedListener { canvasWidth, canvasHeight ->
@@ -192,21 +193,8 @@ class OverlayService : Service() {
     }
 
     private fun applyFilterSettings() {
-        val prefs = getSharedPreferences(FilterSettings.PREFS_NAME, Context.MODE_PRIVATE)
-        live2DRenderer?.postProcess?.isSaturationEnabled =
-            prefs.getBoolean(FilterSettings.KEY_SATURATION, false)
-        live2DRenderer?.postProcess?.isOutlineEnabled =
-            prefs.getBoolean(FilterSettings.KEY_OUTLINE, false)
-        live2DRenderer?.postProcess?.saturationAmount =
-            prefs.getFloat(FilterSettings.KEY_SATURATION_AMOUNT, 1.5f)
-        live2DRenderer?.postProcess?.outlineThickness =
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_THICKNESS, 1.5f)
-        live2DRenderer?.postProcess?.setOutlineColor(
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_R, 0.0f),
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_G, 0.0f),
-            prefs.getFloat(FilterSettings.KEY_OUTLINE_COLOR_B, 0.0f),
-            1.0f
-        )
+        val postProcess = live2DRenderer?.postProcess ?: return
+        FilterSettings.loadInto(this, postProcess)
     }
 
     private fun showBorder() {
