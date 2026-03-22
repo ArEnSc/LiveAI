@@ -1,11 +1,13 @@
 package com.example.liveai
 
+import android.graphics.BitmapFactory
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.EGL14
 import android.opengl.GLES20
+import android.opengl.GLUtils
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
@@ -47,6 +49,13 @@ class Live2DWallpaperService : WallpaperService() {
         private var glReady = false
         private var surfaceWidth = 0
         private var surfaceHeight = 0
+
+        // Background texture GL state
+        private var bgTextureId = 0
+        private var bgShaderProgram = 0
+        private var bgPositionHandle = 0
+        private var bgTexCoordHandle = 0
+        private var bgTextureHandle = 0
 
         // Loading spinner GL state
         private var loadingShaderProgram = 0
@@ -216,6 +225,8 @@ class Live2DWallpaperService : WallpaperService() {
                 postProcess.init()
                 Log.d(TAG, "[$engineId] PostProcess initialized")
 
+                loadBackgroundWallpaper()
+                initBgShader()
                 initLoadingShader()
                 loadingStartTime = System.nanoTime()
 
@@ -306,6 +317,10 @@ class Live2DWallpaperService : WallpaperService() {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
             GLES20.glClearDepthf(1.0f)
 
+            // Draw the user's background image behind the model
+            GLES20.glDisable(GLES20.GL_BLEND)
+            drawBackground()
+
             if (!modelLoaded) {
                 drawLoadingSpinner()
             } else {
@@ -356,6 +371,105 @@ class Live2DWallpaperService : WallpaperService() {
             GLES20.glShaderSource(shader, code)
             GLES20.glCompileShader(shader)
             return shader
+        }
+
+        // --- Background ---
+
+        private fun loadBackgroundWallpaper() {
+            try {
+                val file = java.io.File(this@Live2DWallpaperService.filesDir, "saved_wallpaper.png")
+                if (!file.exists()) {
+                    Log.d(TAG, "[$engineId] No saved wallpaper found")
+                    return
+                }
+                val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return
+
+                val texIds = IntArray(1)
+                GLES20.glGenTextures(1, texIds, 0)
+                bgTextureId = texIds[0]
+
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+
+                bitmap.recycle()
+                Log.d(TAG, "[$engineId] Background wallpaper loaded: ${file.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "[$engineId] Failed to load wallpaper", e)
+            }
+        }
+
+        private fun initBgShader() {
+            val vertexShader = """
+                attribute vec4 aPosition;
+                attribute vec2 aTexCoord;
+                varying vec2 vTexCoord;
+                void main() {
+                    gl_Position = aPosition;
+                    vTexCoord = aTexCoord;
+                }
+            """.trimIndent()
+
+            val fragmentShader = """
+                precision mediump float;
+                varying vec2 vTexCoord;
+                uniform sampler2D uTexture;
+                void main() {
+                    gl_FragColor = texture2D(uTexture, vTexCoord);
+                }
+            """.trimIndent()
+
+            val vs = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader)
+            val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader)
+
+            bgShaderProgram = GLES20.glCreateProgram()
+            GLES20.glAttachShader(bgShaderProgram, vs)
+            GLES20.glAttachShader(bgShaderProgram, fs)
+            GLES20.glLinkProgram(bgShaderProgram)
+
+            bgPositionHandle = GLES20.glGetAttribLocation(bgShaderProgram, "aPosition")
+            bgTexCoordHandle = GLES20.glGetAttribLocation(bgShaderProgram, "aTexCoord")
+            bgTextureHandle = GLES20.glGetUniformLocation(bgShaderProgram, "uTexture")
+        }
+
+        private fun drawBackground() {
+            if (bgTextureId == 0) return
+
+            val vertices = floatArrayOf(
+                -1f, -1f, 0f, 1f,
+                 1f, -1f, 1f, 1f,
+                -1f,  1f, 0f, 0f,
+                 1f,  1f, 1f, 0f
+            )
+
+            val buffer = ByteBuffer.allocateDirect(vertices.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+            buffer.put(vertices).position(0)
+
+            GLES20.glUseProgram(bgShaderProgram)
+
+            buffer.position(0)
+            GLES20.glEnableVertexAttribArray(bgPositionHandle)
+            GLES20.glVertexAttribPointer(bgPositionHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
+
+            buffer.position(2)
+            GLES20.glEnableVertexAttribArray(bgTexCoordHandle)
+            GLES20.glVertexAttribPointer(bgTexCoordHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
+
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
+            GLES20.glUniform1i(bgTextureHandle, 0)
+
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+
+            GLES20.glDisableVertexAttribArray(bgPositionHandle)
+            GLES20.glDisableVertexAttribArray(bgTexCoordHandle)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
         }
 
         // --- Loading spinner ---
