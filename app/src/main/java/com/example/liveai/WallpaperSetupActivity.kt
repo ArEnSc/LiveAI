@@ -285,11 +285,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
         val tabNames = listOf("Position", "Effects", "Audio", "Params")
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(padH, 0, padH, 0)
         }
         // Tab indicator line sits below the tab text row
         val tabIndicatorBar = FrameLayout(this).apply {
-            setPadding(padH, 0, padH, 0)
         }
         val tabIndicator = View(this).apply {
             val shape = GradientDrawable().apply {
