@@ -1,6 +1,7 @@
 package com.example.liveai.chat
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,8 +19,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.dp
 
 /**
@@ -41,12 +44,12 @@ fun ChatPanel(
         if (visible) {
             revealFraction.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = 280)
+                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
             )
         } else {
             revealFraction.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 220)
+                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
             )
             onCollapseFinished()
         }
@@ -61,20 +64,19 @@ fun ChatPanel(
         messages
     }
 
-    // Clip-mask reveal: layout at full width, but clip to animated fraction
+    // Clip-mask reveal: full-size box, clipped from left edge by animated fraction
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .fillMaxHeight()
-            .clipToBounds()
-            .layout { measurable, constraints ->
-                val placeable = measurable.measure(constraints)
-                val visibleWidth = (placeable.width * revealFraction.value).toInt()
-                layout(visibleWidth, placeable.height) {
-                    // Reveal: clip grows from left, content stays at x=0
-                    // Hide: clip shrinks from right, content stays at x=0
-                    // This means content is always left-aligned and the right edge moves
-                    placeable.placeRelative(0, 0)
+            .drawWithContent {
+                val clipWidth = size.width * revealFraction.value
+                clipPath(
+                    Path().apply {
+                        addRect(Rect(0f, 0f, clipWidth, size.height))
+                    }
+                ) {
+                    this@drawWithContent.drawContent()
                 }
             }
     ) {
