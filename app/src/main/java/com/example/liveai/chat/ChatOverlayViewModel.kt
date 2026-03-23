@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+enum class ChatMode { Short, History }
+
 data class ChatMessage(
     val text: String,
     val isUser: Boolean,
@@ -20,8 +22,22 @@ data class ChatMessage(
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
-    val isStreaming: Boolean = false
-)
+    val isStreaming: Boolean = false,
+    val mode: ChatMode = ChatMode.Short
+) {
+    /** In short mode, only show the latest user+assistant exchange. */
+    val visibleMessages: List<ChatMessage>
+        get() {
+            if (mode == ChatMode.History || messages.isEmpty()) return messages
+            // Short mode: show from last user message onward
+            val lastUserIndex = messages.indexOfLast { it.isUser }
+            return if (lastUserIndex < 0) {
+                listOf(messages.last())
+            } else {
+                messages.subList(lastUserIndex, messages.size)
+            }
+        }
+}
 
 /**
  * Manages chat state and mock-streams responses.
@@ -35,6 +51,10 @@ class ChatOverlayViewModel {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    fun onModeChange(mode: ChatMode) {
+        _uiState.update { it.copy(mode = mode) }
+    }
 
     fun onSend(message: String) {
         // Cancel any in-progress stream

@@ -174,7 +174,9 @@ class ChatOverlayManager(
             val uiState by viewModel.uiState.collectAsState()
             ChatPanel(
                 visible = panelVisible.value,
-                messages = uiState.messages,
+                messages = uiState.visibleMessages,
+                mode = uiState.mode,
+                onModeChange = viewModel::onModeChange,
                 onSend = viewModel::onSend,
                 onCollapseFinished = ::removePanel
             )
@@ -201,8 +203,9 @@ class ChatOverlayManager(
     }
 
     /**
-     * Positions the panel adjacent to the ball based on which side of the screen
-     * the ball is on. Panel opens toward screen center.
+     * Positions the panel adjacent to the ball. The panel's bottom edge aligns
+     * with the ball's bottom edge so the input bar sits at the same level.
+     * Panel opens toward screen center horizontally.
      */
     private fun updatePanelPosition() {
         val tParams = tabParams ?: return
@@ -214,7 +217,6 @@ class ChatOverlayManager(
         val gapPx = (GAP_DP * dp).toInt()
 
         val ballCenterX = tParams.x + ballSizePx / 2
-        val ballCenterY = tParams.y + ballSizePx / 2
 
         // Horizontal: panel to the right if ball is on left half, otherwise left
         val openRight = ballCenterX < screenWidth / 2
@@ -224,10 +226,9 @@ class ChatOverlayManager(
             tParams.x - panelWidthPx - gapPx
         }
 
-        // Vertical: anchor panel so its vertical center aligns with ball center,
-        // but clamp to screen bounds
-        pParams.y = (ballCenterY - panelHeightPx / 2)
-            .coerceIn(0, screenHeight - panelHeightPx)
+        // Vertical: bottom-align panel with ball, so input bar is at ball level
+        val ballBottom = tParams.y + ballSizePx
+        pParams.y = (ballBottom - panelHeightPx).coerceAtLeast(0)
 
         if (panelView != null) {
             try {
