@@ -7,6 +7,8 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
@@ -43,6 +45,7 @@ class ChatOverlayManager(
 
     private val isExpanded = mutableStateOf(false)
     private val panelVisible = mutableStateOf(false)
+    private val viewModel = ChatOverlayViewModel()
 
     private val dp get() = context.resources.displayMetrics.density
     private val screenWidth get() = context.resources.displayMetrics.widthPixels
@@ -154,10 +157,12 @@ class ChatOverlayManager(
             panelWidthPx,
             panelHeightPx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
 
         updatePanelPosition()
@@ -166,8 +171,11 @@ class ChatOverlayManager(
         panelVisible.value = true
 
         panelView = createComposeView {
+            val uiState by viewModel.uiState.collectAsState()
             ChatPanel(
                 visible = panelVisible.value,
+                messages = uiState.messages,
+                onSend = viewModel::onSend,
                 onCollapseFinished = ::removePanel
             )
         }
@@ -231,6 +239,7 @@ class ChatOverlayManager(
     }
 
     fun destroy() {
+        viewModel.destroy()
         panelView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) {}
         }
