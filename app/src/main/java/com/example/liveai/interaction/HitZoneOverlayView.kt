@@ -13,12 +13,20 @@ import android.view.View
 /**
  * Transparent overlay that draws a single draggable/resizable zone rectangle
  * over the model preview. Shown while the user is positioning a zone.
+ *
+ * Zone coordinates are stored in **model space** (normalized [0,1] relative
+ * to the model at default position). The overlay transforms them to screen
+ * space for display using the current model scale and offset, and
+ * inverse-transforms back to model space when saving.
  */
 @SuppressLint("ViewConstructor")
 class HitZoneOverlayView(
     context: Context,
-    private var zoneNorm: RectF,
+    private var zoneModelNorm: RectF,
     private val zoneColor: Int,
+    private var modelScale: Float = 1f,
+    private var modelOffsetX: Float = 0f,
+    private var modelOffsetY: Float = 0f,
     private val onZoneChanged: (RectF) -> Unit
 ) : View(context) {
 
@@ -56,9 +64,19 @@ class HitZoneOverlayView(
     private var dragStartY = 0f
     private var dragRectSnapshot = RectF()
 
+    fun updateTransform(scale: Float, offsetX: Float, offsetY: Float) {
+        modelScale = scale
+        modelOffsetX = offsetX
+        modelOffsetY = offsetY
+        if (width > 0 && height > 0) {
+            pixelRect = modelToPixels(zoneModelNorm)
+            invalidate()
+        }
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        pixelRect = toPixels(zoneNorm, w.toFloat(), h.toFloat())
+        pixelRect = modelToPixels(zoneModelNorm)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -126,8 +144,8 @@ class HitZoneOverlayView(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (dragMode != DragMode.NONE) {
                     dragMode = DragMode.NONE
-                    syncNormalized()
-                    onZoneChanged(zoneNorm)
+                    syncToModelSpace()
+                    onZoneChanged(zoneModelNorm)
                     return true
                 }
             }
@@ -135,7 +153,7 @@ class HitZoneOverlayView(
         return false
     }
 
-    fun getZoneNorm(): RectF = RectF(zoneNorm)
+    fun getZoneNorm(): RectF = RectF(zoneModelNorm)
 
     private fun startDrag(mode: DragMode, x: Float, y: Float) {
         dragMode = mode
@@ -176,23 +194,37 @@ class HitZoneOverlayView(
         return -1
     }
 
-    private fun syncNormalized() {
+    /** Convert pixel rect back to model-space normalized coordinates. */
+    private fun syncToModelSpace() {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        zoneNorm = toNormalized(pixelRect, w, h)
+        // Pixel → screen-space normalized
+        val screenNorm = RectF(
+            pixelRect.left / w, pixelRect.top / h,
+            pixelRect.right / w, pixelRect.bottom / h
+        )
+        // Screen-space → model-space
+        zoneModelNorm = ZoneTransform.screenToModel(
+            screenNorm, modelScale, modelOffsetX, modelOffsetY
+        )
+    }
+
+    /** Convert model-space normalized rect to pixel coordinates. */
+    private fun modelToPixels(modelNorm: RectF): RectF {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val screenNorm = ZoneTransform.modelToScreen(
+            modelNorm, modelScale, modelOffsetX, modelOffsetY
+        )
+        return RectF(
+            screenNorm.left * w, screenNorm.top * h,
+            screenNorm.right * w, screenNorm.bottom * h
+        )
     }
 
     private fun cornersOf(r: RectF): List<Pair<Float, Float>> = listOf(
         r.left to r.top, r.right to r.top,
         r.right to r.bottom, r.left to r.bottom
-    )
-
-    private fun toPixels(norm: RectF, w: Float, h: Float) = RectF(
-        norm.left * w, norm.top * h, norm.right * w, norm.bottom * h
-    )
-
-    private fun toNormalized(px: RectF, w: Float, h: Float) = RectF(
-        px.left / w, px.top / h, px.right / w, px.bottom / h
     )
 }

@@ -280,4 +280,12 @@ public class LAppLive2DManager implements InteractionTarget {
 
     @Override
     public int getScreenHeight() { return windowHeight; }
+
+    // getModelScale() already exists above — satisfies InteractionTarget
+
+    @Override
+    public float getModelOffsetX() { return modelOffsetX; }
+
+    @Override
+    public float getModelOffsetY() { return modelOffsetY; }
 }

@@ -30,8 +30,17 @@ class ZoneEditorController(
     private val managerProvider: () -> LAppLive2DManager?,
     private val overlayHost: FrameLayout?,
     private val onPanelVisibility: (visible: Boolean) -> Unit,
+    private val onHintVisibility: (visible: Boolean) -> Unit,
     private val onZonesSaved: (List<InteractionZone>) -> Unit
 ) {
+    // Model transform — updated by the host activity when scale/offset changes
+    private var modelScale = 1f
+    private var modelOffsetX = 0f
+    private var modelOffsetY = 0f
+
+    // Region visibility overlay
+    private var regionOverlay: ZoneVisualOverlayView? = null
+    private var regionsVisible = false
     private val dp = context.resources.displayMetrics.density
     private val padH = (16 * dp).toInt()
     private val accentColor = ContextCompat.getColor(context, R.color.purple_200)
@@ -49,9 +58,19 @@ class ZoneEditorController(
     private var editingZoneIndex = -1
     private var editingBindingIndex = -1
 
-    // Active overlay
+    // Active overlay (zone position editor)
     private var activeOverlay: HitZoneOverlayView? = null
     private var overlayDoneBtn: View? = null
+    private var overlayPreEditRect: RectF? = null
+
+    /** Called by the host activity when the model transform changes (drag/scale). */
+    fun updateModelTransform(scale: Float, offsetX: Float, offsetY: Float) {
+        modelScale = scale
+        modelOffsetX = offsetX
+        modelOffsetY = offsetY
+        regionOverlay?.updateTransform(scale, offsetX, offsetY)
+        activeOverlay?.updateTransform(scale, offsetX, offsetY)
+    }
 
     /** Build and show the zone list in the container. */
     fun buildZoneList() {
@@ -74,24 +93,70 @@ class ZoneEditorController(
             text = "Each zone maps a touch region to model parameters."
             setTextColor(dimWhite)
             textSize = 12f
-            setPadding(0, (4 * dp).toInt(), 0, (12 * dp).toInt())
+            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
         }
         listView.addView(hint)
+
+        // Show Regions toggle
+        val toggleRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, (12 * dp).toInt())
+        }
+        val toggleLabel = TextView(context).apply {
+            text = "Show Regions"
+            setTextColor(textOnPanel)
+            textSize = 13f
+        }
+        toggleRow.addView(toggleLabel, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ))
+        val toggleBtn = makePillButton(
+            if (regionsVisible) "ON" else "OFF",
+            if (regionsVisible) accentColor else Color.TRANSPARENT,
+            textOnPanel
+        ) {}
+        toggleBtn.setOnClickListener {
+            regionsVisible = !regionsVisible
+            toggleBtn.text = if (regionsVisible) "ON" else "OFF"
+            val bg = toggleBtn.background as? GradientDrawable
+            bg?.setColor(if (regionsVisible) accentColor else Color.TRANSPARENT)
+            if (regionsVisible) {
+                showRegionOverlay()
+            } else {
+                hideRegionOverlay()
+            }
+        }
+        toggleRow.addView(toggleBtn)
+        listView.addView(toggleRow)
 
         for ((index, zone) in zones.withIndex()) {
             listView.addView(buildZoneCard(zone, index))
         }
 
+        val btnRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, (12 * dp).toInt(), 0, 0)
+        }
+
         val addBtn = makePillButton("+ Add Zone", Color.TRANSPARENT, textOnPanel) {
             addNewZone()
         }
-        listView.addView(addBtn, LinearLayout.LayoutParams(
+        btnRow.addView(addBtn, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = (12 * dp).toInt()
-        })
+        ).apply { setMargins(0, 0, (8 * dp).toInt(), 0) })
+
+        val resetBtn = makePillButton("Reset Zones", 0xFFCC4444.toInt(), textOnPanel) {
+            zones.clear()
+            zones.addAll(ZoneRepository.createDefaultZones())
+            saveZones()
+            buildZoneList()
+        }
+        btnRow.addView(resetBtn)
+
+        listView.addView(btnRow)
 
         container.addView(listView)
     }
@@ -637,39 +702,125 @@ class ZoneEditorController(
         zones[editingZoneIndex] = zone.copy(bindings = newBindings)
     }
 
-    // --- Zone Overlay ---
+    // --- Region Visibility Overlay ---
+
+    private fun showRegionOverlay() {
+        val host = overlayHost ?: return
+        hideRegionOverlay()
+
+        val overlay = ZoneVisualOverlayView(
+            context = context,
+            zones = zones,
+            modelScale = modelScale,
+            modelOffsetX = modelOffsetX,
+            modelOffsetY = modelOffsetY
+        )
+        regionOverlay = overlay
+
+        // Add below the panel (index 0 = GLSurfaceView, so add at 1)
+        host.addView(overlay, 1, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+    }
+
+    private fun hideRegionOverlay() {
+        val host = overlayHost ?: return
+        regionOverlay?.let {
+            host.removeView(it)
+            regionOverlay = null
+        }
+    }
+
+    /** Refresh the region overlay with current zone data. */
+    private fun refreshRegionOverlay() {
+        regionOverlay?.updateZones(zones)
+    }
+
+    // --- Zone Position Editor Overlay ---
 
     private fun showZoneOverlay(index: Int) {
         val host = overlayHost ?: return
         dismissOverlay()
 
-        // Collapse the panel so the user sees the full model
+        // Collapse the panel and hide the hint so the user sees the full model
         onPanelVisibility(false)
+        onHintVisibility(false)
 
         val zone = zones[index]
         val overlay = HitZoneOverlayView(
             context = context,
-            zoneNorm = zone.rect,
+            zoneModelNorm = zone.rect,
             zoneColor = zone.color,
+            modelScale = modelScale,
+            modelOffsetX = modelOffsetX,
+            modelOffsetY = modelOffsetY,
             onZoneChanged = { newRect ->
                 zones[index] = zones[index].copy(rect = newRect)
+                refreshRegionOverlay()
             }
         )
         activeOverlay = overlay
+        overlayPreEditRect = RectF(zone.rect)
 
         host.addView(overlay, host.childCount - 1, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        val doneBtn = makePillButton("Done Positioning", accentColor, textOnPanel) {
+        val btnRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val cancelBtn = makePillButton("Cancel", Color.TRANSPARENT, textOnPanel) {
+            // Restore pre-edit rect
+            overlayPreEditRect?.let { original ->
+                zones[index] = zones[index].copy(rect = original)
+            }
+            dismissOverlay()
+        }
+        btnRow.addView(cancelBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(0, 0, (6 * dp).toInt(), 0) })
+
+        val centreBtn = makePillButton("Centre", Color.TRANSPARENT, textOnPanel) {
+            // Centre on display: find screen centre in model space
+            val screenCentre = ZoneTransform.screenToModel(
+                RectF(0.5f, 0.5f, 0.5f, 0.5f), modelScale, modelOffsetX, modelOffsetY
+            )
+            val currentZone = zones[index]
+            val w = currentZone.rect.width()
+            val h = currentZone.rect.height()
+            val centred = RectF(
+                screenCentre.left - w / 2f,
+                screenCentre.top - h / 2f,
+                screenCentre.left + w / 2f,
+                screenCentre.top + h / 2f
+            )
+            zones[index] = currentZone.copy(rect = centred)
+            refreshRegionOverlay()
+            // Recreate overlay to show new position
+            dismissOverlay()
+            showZoneOverlay(index)
+        }
+        btnRow.addView(centreBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(0, 0, (6 * dp).toInt(), 0) })
+
+        val doneBtn = makePillButton("Done", accentColor, textOnPanel) {
+            overlayPreEditRect = null
             dismissOverlay()
             saveZones()
         }
-        doneBtn.tag = "zone_overlay_done_btn"
-        overlayDoneBtn = doneBtn
+        btnRow.addView(doneBtn)
 
-        host.addView(doneBtn, FrameLayout.LayoutParams(
+        btnRow.tag = "zone_overlay_done_btn"
+        overlayDoneBtn = btnRow
+
+        host.addView(btnRow, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
@@ -689,9 +840,10 @@ class ZoneEditorController(
             host.removeView(it)
             overlayDoneBtn = null
         }
-        // Restore the panel if we were showing an overlay
+        // Restore the panel and hint if we were showing an overlay
         if (hadOverlay) {
             onPanelVisibility(true)
+            onHintVisibility(true)
         }
     }
 
@@ -714,6 +866,13 @@ class ZoneEditorController(
     private fun saveZones() {
         ZoneRepository.saveZones(context, zones)
         onZonesSaved(zones)
+        refreshRegionOverlay()
+    }
+
+    /** Hide region overlay when leaving the interaction tab. */
+    fun hideRegionsOnTabChange() {
+        hideRegionOverlay()
+        regionsVisible = false
     }
 
     private fun makePillButton(

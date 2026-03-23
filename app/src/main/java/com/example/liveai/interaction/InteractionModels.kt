@@ -30,4 +30,11 @@ interface InteractionTarget {
 
     fun getScreenWidth(): Int
     fun getScreenHeight(): Int
+
+    /** Current model scale factor (1.0 = default). */
+    fun getModelScale(): Float
+    /** Current model X offset in GL coordinates (screen spans [-1, 1]). */
+    fun getModelOffsetX(): Float
+    /** Current model Y offset in GL coordinates (screen spans [-1, 1]). */
+    fun getModelOffsetY(): Float
 }

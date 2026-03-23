@@ -309,6 +309,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                     }
                 }
                 touchHandler = null
+                zoneEditorController?.hideRegionsOnTabChange()
             }
 
             activeTabIndex = index
@@ -390,14 +391,17 @@ class WallpaperSetupActivity : AppCompatActivity() {
             onScaleChanged = { value ->
                 modelScale = value
                 live2DManager?.setModelScale(modelScale)
+                zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
             },
             onCenterHorizontal = {
                 offsetX = 0.0f
                 live2DManager?.setModelOffset(offsetX, offsetY)
+                zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
             },
             onCenterVertical = {
                 offsetY = 0.0f
                 live2DManager?.setModelOffset(offsetX, offsetY)
+                zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
             },
             initialScale = modelScale
         )
@@ -451,8 +455,12 @@ class WallpaperSetupActivity : AppCompatActivity() {
             onPanelVisibility = { visible ->
                 controlsPanel?.visibility = if (visible) View.VISIBLE else View.GONE
             },
+            onHintVisibility = { visible ->
+                hintLabel?.visibility = if (visible) View.VISIBLE else View.GONE
+            },
             onZonesSaved = { rebuildTouchHandler() }
         )
+        zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
         zoneEditorController?.buildZoneList()
 
         tabContents.add(interactContent)
@@ -507,6 +515,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             offsetY = 0.0f
             live2DManager?.setModelScale(modelScale)
             live2DManager?.setModelOffset(offsetX, offsetY)
+            zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
             postProcess.isSaturationEnabled = false
             postProcess.isOutlineEnabled = false
             postProcess.saturationAmount = 1.5f
@@ -564,6 +573,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                     modelScale *= detector.scaleFactor
                     modelScale = modelScale.coerceIn(0.5f, 10.0f)
                     live2DManager?.setModelScale(modelScale)
+                    zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
                     return true
                 }
 
@@ -605,6 +615,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                             offsetX += (dx / view.width) * 2.0f
                             offsetY -= (dy / view.height) * 2.0f
                             live2DManager?.setModelOffset(offsetX, offsetY)
+                            zoneEditorController?.updateModelTransform(modelScale, offsetX, offsetY)
 
                             // Feed touch position to model drag for physics
                             val dragX = (event.getX(pointerIndex) / view.width) * 2f - 1f

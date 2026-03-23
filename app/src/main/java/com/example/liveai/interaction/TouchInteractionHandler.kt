@@ -128,12 +128,18 @@ class TouchInteractionHandler(
         val h = target.getScreenHeight().toFloat()
         if (w <= 0f || h <= 0f) return null
 
+        val scale = target.getModelScale()
+        val offX = target.getModelOffsetX()
+        val offY = target.getModelOffsetY()
+
         // First zone in the list that contains the point wins (user controls priority via ordering)
         for (zone in zones) {
-            val px = zone.rect.left * w
-            val py = zone.rect.top * h
-            val pr = zone.rect.right * w
-            val pb = zone.rect.bottom * h
+            // Transform zone from model space to screen space, then to pixels
+            val screenRect = ZoneTransform.modelToScreen(zone.rect, scale, offX, offY)
+            val px = screenRect.left * w
+            val py = screenRect.top * h
+            val pr = screenRect.right * w
+            val pb = screenRect.bottom * h
             if (screenX in px..pr && screenY in py..pb) {
                 return zone
             }
