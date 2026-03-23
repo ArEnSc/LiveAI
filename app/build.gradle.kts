@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -34,6 +35,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
@@ -47,6 +51,18 @@ dependencies {
     implementation(platform(libs.openai.client.bom))
     implementation(libs.openai.client)
     runtimeOnly(libs.ktor.client.okhttp)
+
+    // Compose
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons)
+    implementation(libs.compose.ui.tooling.preview)
+    debugImplementation(libs.compose.ui.tooling)
+
+    // Lifecycle (for collectAsStateWithLifecycle)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
 
     implementation(project(":framework"))
     implementation(fileTree(mapOf("dir" to "../libs", "include" to listOf("*.aar"))))
