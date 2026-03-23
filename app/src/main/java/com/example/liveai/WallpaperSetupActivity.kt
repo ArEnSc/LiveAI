@@ -77,6 +77,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
     // Tab builders
     private var positionTab: PositionTabBuilder? = null
     private var effectsTab: EffectsTabBuilder? = null
+    private var audioTab: AudioTabBuilder? = null
     private var parameterTab: ParameterTabBuilder? = null
 
     private var modelScale = 1.0f
@@ -413,7 +414,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         contentHost.addView(effectsContent)
 
         // ===== TAB: Audio Motion =====
-        val audioContent = AudioTabBuilder(
+        val audioBuilder = AudioTabBuilder(
             context = this,
             audioVolumeSourceProvider = { audioVolumeSource },
             initialEnabled = audioMotionEnabled,
@@ -422,7 +423,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
             onEnabledChanged = { audioMotionEnabled = it; updateAudioMotionConfig() },
             onIntensityChanged = { audioMotionIntensity = it; updateAudioMotionConfig() },
             onSpeedChanged = { audioMotionSpeed = it; updateAudioMotionConfig() }
-        ).build()
+        )
+        audioTab = audioBuilder
+        val audioContent = audioBuilder.build()
         tabContents.add(audioContent)
         contentHost.addView(audioContent)
 
@@ -711,19 +714,34 @@ class WallpaperSetupActivity : AppCompatActivity() {
      * Destroy the Live2D session on the GL thread so that glDelete* calls
      * target the GLSurfaceView's EGL context — not the wallpaper engine's
      * context which may be current on the main thread.
+     *
+     * Uses a CountDownLatch to ensure the GL event completes before
+     * onPause() stops the GL thread.
      */
     private fun destroySessionOnGlThread() {
         val s = session ?: return
         session = null
+        val latch = java.util.concurrent.CountDownLatch(1)
         glSurfaceView?.queueEvent {
-            Live2DSessionFactory.destroy(s)
-            Log.d(TAG, "Session destroyed on GL thread")
+            try {
+                postProcess.release()
+                Live2DSessionFactory.destroy(s)
+                Log.d(TAG, "Session destroyed on GL thread")
+            } finally {
+                latch.countDown()
+            }
+        }
+        try {
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Log.w(TAG, "Interrupted waiting for GL session destroy", e)
         }
         glSurfaceView?.onPause()
     }
 
     override fun onPause() {
         super.onPause()
+        audioTab?.stopVolumeUpdates()
         glSurfaceView?.onPause()
     }
 
@@ -747,6 +765,24 @@ class WallpaperSetupActivity : AppCompatActivity() {
             }
             session = null
         }
+        live2DManager = null
+        audioVolumeSource = null
+        audioDrivenMotion = null
+
+        // Release view references so GC can collect them promptly
+        glSurfaceView = null
+        loadingOverlay = null
+        rootLayout = null
+        hintLabel = null
+        controlsPanel = null
+        zoneEditorController = null
+        touchHandler = null
+
+        // Release tab builder references
+        positionTab = null
+        effectsTab = null
+        audioTab = null
+        parameterTab = null
     }
 
     inner class SetupRenderer : GLSurfaceView.Renderer {

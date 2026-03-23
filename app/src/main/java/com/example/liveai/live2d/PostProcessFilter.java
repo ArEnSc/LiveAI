@@ -59,6 +59,32 @@ public class PostProcessFilter {
         initOutlineShader();
     }
 
+    /** Release all GL resources (FBOs, textures, shader programs). Must be called on the GL thread. */
+    public void release() {
+        if (fboId != 0) {
+            GLES20.glDeleteFramebuffers(1, new int[]{fboId}, 0);
+            GLES20.glDeleteTextures(1, new int[]{fboTextureId}, 0);
+            fboId = 0;
+            fboTextureId = 0;
+        }
+        if (fbo2Id != 0) {
+            GLES20.glDeleteFramebuffers(1, new int[]{fbo2Id}, 0);
+            GLES20.glDeleteTextures(1, new int[]{fbo2TextureId}, 0);
+            fbo2Id = 0;
+            fbo2TextureId = 0;
+        }
+        if (saturationProgram != 0) {
+            GLES20.glDeleteProgram(saturationProgram);
+            saturationProgram = 0;
+        }
+        if (outlineProgram != 0) {
+            GLES20.glDeleteProgram(outlineProgram);
+            outlineProgram = 0;
+        }
+        fboWidth = 0;
+        fboHeight = 0;
+    }
+
     public void resize(int width, int height) {
         fboWidth = width;
         fboHeight = height;

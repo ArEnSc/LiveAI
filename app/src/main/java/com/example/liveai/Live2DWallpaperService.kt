@@ -271,6 +271,7 @@ class Live2DWallpaperService : WallpaperService() {
                     makeCurrent()
                 }
                 try {
+                    postProcess.release()
                     session?.let { Live2DSessionFactory.destroy(it) }
                 } catch (e: Exception) {
                     Log.w(TAG, "[$engineId] tearDown: session destroy failed", e)

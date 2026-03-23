@@ -36,6 +36,16 @@ class AudioTabBuilder(
     private var intensity = initialIntensity
     private var speed = initialSpeed
 
+    private var volumeHandler: Handler? = null
+    private var volumeUpdater: Runnable? = null
+
+    /** Stop the repeating volume meter updates. Call from onPause/onDestroy. */
+    fun stopVolumeUpdates() {
+        volumeUpdater?.let { volumeHandler?.removeCallbacks(it) }
+        volumeHandler = null
+        volumeUpdater = null
+    }
+
     fun build(): LinearLayout {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -74,16 +84,18 @@ class AudioTabBuilder(
         audioRow.addView(volumeLabel)
         content.addView(audioRow)
 
-        val volumeHandler = Handler(Looper.getMainLooper())
-        val volumeUpdater = object : Runnable {
+        val handler = Handler(Looper.getMainLooper())
+        val updater = object : Runnable {
             override fun run() {
                 val vol = ((audioVolumeSourceProvider()?.volume ?: 0f) * 100).toInt()
                 volumeMeter.progress = vol
                 volumeLabel.text = "${vol}%"
-                volumeHandler.postDelayed(this, 100)
+                handler.postDelayed(this, 100)
             }
         }
-        volumeHandler.post(volumeUpdater)
+        volumeHandler = handler
+        volumeUpdater = updater
+        handler.post(updater)
 
         val intSlider = SetupUiHelpers.makeSliderRow(
             context = context,
