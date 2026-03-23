@@ -41,7 +41,7 @@ object ZoneRepository {
         val json = prefs.getString(KEY_ZONES_JSON, null)
 
         if (json != null) {
-            return deserializeZones(json)
+            return migrateCoreFlag(deserializeZones(json))
         }
 
         // Try migrating from old format
@@ -102,6 +102,14 @@ object ZoneRepository {
     /** Default spring config for new user-created zones. */
     fun defaultSpring(): SpringConfig =
         SpringConfig(durationMs = 1000L, decay = 8f, frequency = 2.5f, sinMultiplier = 12f)
+
+    /** Stamp core=true on zones whose names match a default zone. */
+    private fun migrateCoreFlag(zones: List<InteractionZone>): List<InteractionZone> {
+        val coreNames = createDefaultZones().filter { it.core }.map { it.name }.toSet()
+        return zones.map { zone ->
+            if (!zone.core && zone.name in coreNames) zone.copy(core = true) else zone
+        }
+    }
 
     // --- Serialization ---
 

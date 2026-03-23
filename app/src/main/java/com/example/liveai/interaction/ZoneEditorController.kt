@@ -203,8 +203,17 @@ class ZoneEditorController(
         detail.addView(buildSensitivitySection(zone))
         detail.addView(makeDivider())
         detail.addView(buildBindingsSection(zone))
-        if (!zone.core) {
-            detail.addView(makeDivider(topMargin = 16))
+        detail.addView(makeDivider(topMargin = 16))
+        if (zone.core) {
+            detail.addView(makePillButton("Reset to Default", Color.TRANSPARENT, textOnPanel) {
+                val defaults = ZoneRepository.createDefaultZones()
+                val defaultZone = defaults.firstOrNull { it.name == zone.name }
+                if (defaultZone != null) {
+                    zones[editingZoneIndex] = defaultZone.copy(id = zone.id)
+                    dismissOverlay(); saveZones(); openZoneDetail(editingZoneIndex)
+                }
+            }, centredWrap())
+        } else {
             detail.addView(makePillButton("Delete Zone", dangerColor, textOnPanel) {
                 zones.removeAt(editingZoneIndex); dismissOverlay(); saveZones(); buildZoneList()
             }, centredWrap())
