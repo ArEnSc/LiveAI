@@ -315,6 +315,7 @@ class ZoneEditorController(
         editor.addView(makeTextButton("\u2190 Back") { openZoneDetail(editingZoneIndex) })
         editor.addView(makeLabel(binding.displayName, size = 15f, bottomPad = 12))
         editor.addView(buildAxisToggle(binding))
+        editor.addView(buildInvertToggle(binding))
         editor.addView(buildStrengthSlider(binding))
         editor.addView(buildMaxValueSlider(binding))
 
@@ -342,6 +343,25 @@ class ZoneEditorController(
 
         row.addView(btnH, wrapWithMarginEnd(6))
         row.addView(btnV)
+        return row
+    }
+
+    private fun buildInvertToggle(binding: ParameterBinding): View {
+        val isInverted = binding.strength < 0f
+        val row = makeRow(bottomPad = 8)
+        row.addView(makeLabel("Inverted: ", size = 13f, bold = false, topPad = 0, bottomPad = 0))
+
+        val btn = makePillButton(
+            if (isInverted) "ON" else "OFF",
+            if (isInverted) accentColor else Color.TRANSPARENT,
+            textOnPanel
+        ) {}
+        btn.setOnClickListener {
+            updateBinding { it.copy(strength = -it.strength) }
+            // Refresh the editor to update the strength slider
+            openBindingEditor(editingBindingIndex)
+        }
+        row.addView(btn)
         return row
     }
 
@@ -560,6 +580,7 @@ class ZoneEditorController(
 
     private fun updateBinding(transform: (ParameterBinding) -> ParameterBinding) {
         updateZoneBinding(editingBindingIndex, transform)
+        saveZones()
     }
 
     private fun addNewZone() {
