@@ -21,7 +21,11 @@ data class InteractionZone(
     val rect: RectF,
     val bindings: List<ParameterBinding>,
     val spring: SpringConfig,
-    val sensitivity: Float = DEFAULT_SENSITIVITY
+    val sensitivity: Float = DEFAULT_SENSITIVITY,
+    /** Parameters held at fixed values while the zone is actively touched. */
+    val holdParams: Map<String, Float> = emptyMap(),
+    /** Core zones (Head, Body) cannot be deleted by the user. */
+    val core: Boolean = false
 ) {
     companion object {
         const val DEFAULT_SENSITIVITY = 0.01f

@@ -73,7 +73,9 @@ object ZoneRepository {
                 ParameterBinding("ParamAngleX", "Angle X", DragAxis.HORIZONTAL, 1.0f, 30f),
                 ParameterBinding("ParamAngleY", "Angle Y", DragAxis.VERTICAL, -1.0f, 30f)
             ),
-            spring = SpringConfig(durationMs = 1000L, decay = 8f, frequency = 2.5f, sinMultiplier = 12f)
+            spring = SpringConfig(durationMs = 1000L, decay = 8f, frequency = 2.5f, sinMultiplier = 12f),
+            holdParams = mapOf("ParamEyeLOpen" to 0f, "ParamEyeROpen" to 0f),
+            core = true
         ),
         InteractionZone(
             id = UUID.randomUUID().toString(),
@@ -85,7 +87,8 @@ object ZoneRepository {
                 ParameterBinding("ParamBodyAngleY", "Body Angle Y", DragAxis.VERTICAL, -1.0f, 30f),
                 ParameterBinding("ParamBodyAngleZ", "Body Angle Z", DragAxis.HORIZONTAL, 0.3f, 15f)
             ),
-            spring = SpringConfig(durationMs = 1200L, decay = 10f, frequency = 3f, sinMultiplier = 10f)
+            spring = SpringConfig(durationMs = 1200L, decay = 10f, frequency = 3f, sinMultiplier = 10f),
+            core = true
         )
     )
 
@@ -132,6 +135,12 @@ object ZoneRepository {
             }
         })
         put("sensitivity", zone.sensitivity.toDouble())
+        if (zone.holdParams.isNotEmpty()) {
+            put("holdParams", JSONObject().apply {
+                for ((k, v) in zone.holdParams) put(k, v.toDouble())
+            })
+        }
+        if (zone.core) put("core", true)
         put("spring", JSONObject().apply {
             put("durationMs", zone.spring.durationMs)
             put("decay", zone.spring.decay.toDouble())
@@ -176,6 +185,10 @@ object ZoneRepository {
                 )
             },
             sensitivity = obj.optDouble("sensitivity", InteractionZone.DEFAULT_SENSITIVITY.toDouble()).toFloat(),
+            holdParams = obj.optJSONObject("holdParams")?.let { hp ->
+                hp.keys().asSequence().associateWith { hp.getDouble(it).toFloat() }
+            } ?: emptyMap(),
+            core = obj.optBoolean("core", false),
             spring = SpringConfig(
                 durationMs = springObj.getLong("durationMs"),
                 decay = springObj.getDouble("decay").toFloat(),

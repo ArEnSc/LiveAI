@@ -36,10 +36,14 @@ class TouchInteractionHandler(
                 return handlePointerUp(event)
             MotionEvent.ACTION_CANCEL -> {
                 for ((_, state) in activePointers) {
-                    startSpringBack(state.zone, state.currentValues)
+                    if (state.zone.holdParams.isNotEmpty()) {
+                        target.clearInteractionParams(state.zone.holdParams.keys)
+                    }
+                    val springValues = state.currentValues - state.zone.holdParams.keys
+                    startSpringBack(state.zone, springValues)
                 }
                 activePointers.clear()
-                return activePointers.isNotEmpty()
+                return false
             }
         }
         return false
@@ -77,8 +81,12 @@ class TouchInteractionHandler(
         activePointers[pointerId] = PointerInteraction(
             zone = zone,
             startX = x, startY = y,
-            lastX = x, lastY = y
+            lastX = x, lastY = y,
+            currentValues = zone.holdParams
         )
+        if (zone.holdParams.isNotEmpty()) {
+            target.setInteractionParams(zone.holdParams)
+        }
         Log.d(TAG, "Drag start: ${zone.name} pointer=$pointerId")
         return true
     }
@@ -92,12 +100,13 @@ class TouchInteractionHandler(
 
             val x = event.getX(pointerIndex)
             val y = event.getY(pointerIndex)
-            val values = InteractionEngine.computeBindingValues(
+            val bindingValues = InteractionEngine.computeBindingValues(
                 state.zone.bindings,
                 x - state.startX,
                 y - state.startY,
                 state.zone.sensitivity
             )
+            val values = state.zone.holdParams + bindingValues
             state.currentValues = values
             state.lastX = x
             state.lastY = y
@@ -112,7 +121,13 @@ class TouchInteractionHandler(
         val state = activePointers.remove(pointerId) ?: return false
 
         Log.d(TAG, "Drag end: ${state.zone.name}")
-        startSpringBack(state.zone, state.currentValues)
+        // Clear holdParams immediately (they snap back to resting state),
+        // spring-back only animates the drag-proportional binding values.
+        if (state.zone.holdParams.isNotEmpty()) {
+            target.clearInteractionParams(state.zone.holdParams.keys)
+        }
+        val springValues = state.currentValues - state.zone.holdParams.keys
+        startSpringBack(state.zone, springValues)
         return true
     }
 

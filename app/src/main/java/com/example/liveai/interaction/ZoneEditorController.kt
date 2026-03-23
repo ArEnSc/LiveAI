@@ -203,10 +203,12 @@ class ZoneEditorController(
         detail.addView(buildSensitivitySection(zone))
         detail.addView(makeDivider())
         detail.addView(buildBindingsSection(zone))
-        detail.addView(makeDivider(topMargin = 16))
-        detail.addView(makePillButton("Delete Zone", dangerColor, textOnPanel) {
-            zones.removeAt(editingZoneIndex); dismissOverlay(); saveZones(); buildZoneList()
-        }, centredWrap())
+        if (!zone.core) {
+            detail.addView(makeDivider(topMargin = 16))
+            detail.addView(makePillButton("Delete Zone", dangerColor, textOnPanel) {
+                zones.removeAt(editingZoneIndex); dismissOverlay(); saveZones(); buildZoneList()
+            }, centredWrap())
+        }
 
         container.addView(detail)
     }
