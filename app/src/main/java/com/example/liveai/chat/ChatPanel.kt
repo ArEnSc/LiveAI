@@ -71,6 +71,9 @@ fun ChatPanel(
                 val placeable = measurable.measure(constraints)
                 val visibleWidth = (placeable.width * revealFraction.value).toInt()
                 layout(visibleWidth, placeable.height) {
+                    // Reveal: clip grows from left, content stays at x=0
+                    // Hide: clip shrinks from right, content stays at x=0
+                    // This means content is always left-aligned and the right edge moves
                     placeable.placeRelative(0, 0)
                 }
             }
@@ -125,8 +128,10 @@ fun ChatPanel(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Input bar
-            ChatInputBar(onSend = onSend)
+            // Input bar — inset to align with message bubbles (4dp panel + 10dp pointer)
+            Box(modifier = Modifier.padding(start = 14.dp, end = 4.dp)) {
+                ChatInputBar(onSend = onSend)
+            }
         }
     }
 }
