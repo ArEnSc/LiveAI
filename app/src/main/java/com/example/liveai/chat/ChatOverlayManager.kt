@@ -70,18 +70,19 @@ class ChatOverlayManager(
     fun showTab() {
         if (tabView != null) return
 
-        val sizePx = (BALL_SIZE_DP * dp).toInt()
+        val shadowPaddingPx = (SHADOW_PADDING_DP * dp).toInt()
+        val windowSizePx = (BALL_SIZE_DP * dp).toInt() + shadowPaddingPx * 2
 
         tabParams = WindowManager.LayoutParams(
-            sizePx,
-            sizePx,
+            windowSizePx,
+            windowSizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = screenHeight - sizePx - (BOTTOM_MARGIN_DP * dp).toInt()
+            x = -shadowPaddingPx
+            y = screenHeight - windowSizePx - (BOTTOM_MARGIN_DP * dp).toInt()
         }
 
         tabView = createComposeView {
@@ -212,23 +213,27 @@ class ChatOverlayManager(
         val pParams = panelParams ?: return
 
         val ballSizePx = (BALL_SIZE_DP * dp).toInt()
+        val shadowPad = (SHADOW_PADDING_DP * dp).toInt()
         val panelWidthPx = (PANEL_WIDTH_DP * dp).toInt()
         val panelHeightPx = (PANEL_HEIGHT_DP * dp).toInt()
         val gapPx = (GAP_DP * dp).toInt()
 
-        val ballCenterX = tParams.x + ballSizePx / 2
+        // The tab window includes shadow padding, so the actual ball position is offset
+        val ballLeftPx = tParams.x + shadowPad
+        val ballTopPx = tParams.y + shadowPad
+        val ballCenterX = ballLeftPx + ballSizePx / 2
 
         // Horizontal: panel to the right if ball is on left half, otherwise left
         val openRight = ballCenterX < screenWidth / 2
         pParams.x = if (openRight) {
-            tParams.x + ballSizePx + gapPx
+            ballLeftPx + ballSizePx + gapPx
         } else {
-            tParams.x - panelWidthPx - gapPx
+            ballLeftPx - panelWidthPx - gapPx
         }
 
-        // Vertical: bottom-align panel with ball, so input bar is at ball level
-        val ballBottom = tParams.y + ballSizePx
-        pParams.y = (ballBottom - panelHeightPx).coerceAtLeast(0)
+        // Vertical: panel sits above the ball with 8dp gap
+        val inputGapPx = (8 * dp).toInt()
+        pParams.y = (ballTopPx - panelHeightPx - inputGapPx).coerceAtLeast(0)
 
         if (panelView != null) {
             try {
@@ -267,6 +272,7 @@ class ChatOverlayManager(
     companion object {
         private const val TAG = "LiveAI"
         const val BALL_SIZE_DP = 52
+        const val SHADOW_PADDING_DP = 12
         const val BOTTOM_MARGIN_DP = 120
         const val PANEL_WIDTH_DP = 280
         const val PANEL_HEIGHT_DP = 360
