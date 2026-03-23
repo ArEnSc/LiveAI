@@ -41,6 +41,8 @@ class ZoneEditorController(
     // Region visibility overlay
     private var regionOverlay: ZoneVisualOverlayView? = null
     private var regionsVisible = false
+
+    // Styling constants
     private val dp = context.resources.displayMetrics.density
     private val padH = (16 * dp).toInt()
     private val accentColor = ContextCompat.getColor(context, R.color.purple_200)
@@ -48,13 +50,11 @@ class ZoneEditorController(
     private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
     private val dividerColor = ContextCompat.getColor(context, R.color.panel_divider)
     private val panelBg = ContextCompat.getColor(context, R.color.panel_background)
+    private val dangerColor = 0xFFCC4444.toInt()
 
     private var zones = ZoneRepository.loadZones(context).toMutableList()
 
     // Navigation state
-    private var zoneListView: LinearLayout? = null
-    private var zoneDetailView: LinearLayout? = null
-    private var bindingEditorView: LinearLayout? = null
     private var editingZoneIndex = -1
     private var editingBindingIndex = -1
 
@@ -62,6 +62,8 @@ class ZoneEditorController(
     private var activeOverlay: HitZoneOverlayView? = null
     private var overlayDoneBtn: View? = null
     private var overlayPreEditRect: RectF? = null
+
+    // ── Public API ──────────────────────────────────────────────────────
 
     /** Called by the host activity when the model transform changes (drag/scale). */
     fun updateModelTransform(scale: Float, offsetX: Float, offsetY: Float) {
@@ -72,45 +74,50 @@ class ZoneEditorController(
         activeOverlay?.updateTransform(scale, offsetX, offsetY)
     }
 
+    /** Hide region overlay when leaving the interaction tab. */
+    fun hideRegionsOnTabChange() {
+        hideRegionOverlay()
+        regionsVisible = false
+    }
+
+    fun dismissOverlay() {
+        val host = overlayHost ?: return
+        val hadOverlay = activeOverlay != null
+        activeOverlay?.let { host.removeView(it) }
+        activeOverlay = null
+        overlayDoneBtn?.let { host.removeView(it) }
+        overlayDoneBtn = null
+        if (hadOverlay) {
+            onPanelVisibility(true)
+            onHintVisibility(true)
+        }
+    }
+
+    // ── Zone List ───────────────────────────────────────────────────────
+
     /** Build and show the zone list in the container. */
     fun buildZoneList() {
         container.removeAllViews()
 
-        val listView = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        zoneListView = listView
+        val listView = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 
-        val label = TextView(context).apply {
-            text = "Interaction zones"
-            setTextColor(textOnPanel)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-        }
-        listView.addView(label)
+        listView.addView(makeLabel("Interaction zones", size = 14f))
+        listView.addView(makeHint("Each zone maps a touch region to model parameters."))
+        listView.addView(buildShowRegionsToggle())
 
-        val hint = TextView(context).apply {
-            text = "Each zone maps a touch region to model parameters."
-            setTextColor(dimWhite)
-            textSize = 12f
-            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
+        for ((index, zone) in zones.withIndex()) {
+            listView.addView(buildZoneCard(zone, index))
         }
-        listView.addView(hint)
 
-        // Show Regions toggle
-        val toggleRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, (12 * dp).toInt())
-        }
-        val toggleLabel = TextView(context).apply {
-            text = "Show Regions"
-            setTextColor(textOnPanel)
-            textSize = 13f
-        }
-        toggleRow.addView(toggleLabel, LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-        ))
+        listView.addView(buildZoneListButtons())
+        container.addView(listView)
+    }
+
+    private fun buildShowRegionsToggle(): View {
+        val row = makeRow(bottomPad = 12)
+        row.addView(makeLabel("Show Regions", size = 13f, bold = false, topPad = 0, bottomPad = 0),
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
         val toggleBtn = makePillButton(
             if (regionsVisible) "ON" else "OFF",
             if (regionsVisible) accentColor else Color.TRANSPARENT,
@@ -119,556 +126,282 @@ class ZoneEditorController(
         toggleBtn.setOnClickListener {
             regionsVisible = !regionsVisible
             toggleBtn.text = if (regionsVisible) "ON" else "OFF"
-            val bg = toggleBtn.background as? GradientDrawable
-            bg?.setColor(if (regionsVisible) accentColor else Color.TRANSPARENT)
-            if (regionsVisible) {
-                showRegionOverlay()
-            } else {
-                hideRegionOverlay()
-            }
+            (toggleBtn.background as? GradientDrawable)
+                ?.setColor(if (regionsVisible) accentColor else Color.TRANSPARENT)
+            if (regionsVisible) showRegionOverlay() else hideRegionOverlay()
         }
-        toggleRow.addView(toggleBtn)
-        listView.addView(toggleRow)
+        row.addView(toggleBtn)
+        return row
+    }
 
-        for ((index, zone) in zones.withIndex()) {
-            listView.addView(buildZoneCard(zone, index))
-        }
-
-        val btnRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, (12 * dp).toInt(), 0, 0)
-        }
-
-        val addBtn = makePillButton("+ Add Zone", Color.TRANSPARENT, textOnPanel) {
-            addNewZone()
-        }
-        btnRow.addView(addBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, (8 * dp).toInt(), 0) })
-
-        val resetBtn = makePillButton("Reset Zones", 0xFFCC4444.toInt(), textOnPanel) {
+    private fun buildZoneListButtons(): View {
+        val row = makeRow(topPad = 12)
+        row.addView(makePillButton("+ Add Zone", Color.TRANSPARENT, textOnPanel) { addNewZone() },
+            wrapWithMarginEnd(8))
+        row.addView(makePillButton("Reset Zones", dangerColor, textOnPanel) {
             zones.clear()
             zones.addAll(ZoneRepository.createDefaultZones())
             saveZones()
             buildZoneList()
-        }
-        btnRow.addView(resetBtn)
-
-        listView.addView(btnRow)
-
-        container.addView(listView)
+        })
+        return row
     }
 
     private fun buildZoneCard(zone: InteractionZone, index: Int): View {
-        val card = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(padH, (12 * dp).toInt(), padH, (12 * dp).toInt())
+        val card = makeRow(hPad = padH, vPad = 12).apply {
             isClickable = true
             isFocusable = true
+            setOnClickListener { openZoneDetail(index) }
         }
 
         // Color dot
+        val dotSize = (12 * dp).toInt()
         val dot = View(context).apply {
-            val size = (12 * dp).toInt()
-            val shape = GradientDrawable().apply {
+            background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(zone.color)
             }
-            background = shape
-            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+            layoutParams = LinearLayout.LayoutParams(dotSize, dotSize).apply {
                 setMargins(0, 0, (10 * dp).toInt(), 0)
             }
         }
         card.addView(dot)
 
         // Name + binding summary
-        val textCol = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val nameLabel = TextView(context).apply {
-            text = zone.name
-            setTextColor(textOnPanel)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-        }
-        textCol.addView(nameLabel)
-
-        val bindingSummary = zone.bindings.joinToString(", ") { it.displayName }
-        if (bindingSummary.isNotEmpty()) {
-            val summaryLabel = TextView(context).apply {
-                text = bindingSummary
-                setTextColor(dimWhite)
-                textSize = 11f
-                maxLines = 1
-            }
-            textCol.addView(summaryLabel)
+        val textCol = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        textCol.addView(makeLabel(zone.name, size = 14f, topPad = 0, bottomPad = 0))
+        val summary = zone.bindings.joinToString(", ") { it.displayName }
+        if (summary.isNotEmpty()) {
+            textCol.addView(makeHint(summary, maxLines = 1, topPad = 0, bottomPad = 0))
         }
         card.addView(textCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         // Chevron
-        val chevron = TextView(context).apply {
-            text = "\u203A"
-            setTextColor(dimWhite)
-            textSize = 18f
-        }
-        card.addView(chevron)
+        card.addView(TextView(context).apply {
+            text = "\u203A"; setTextColor(dimWhite); textSize = 18f
+        })
 
-        card.setOnClickListener { openZoneDetail(index) }
-
-        // Wrap with divider
-        val wrapper = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(card)
-            addView(View(context).apply { setBackgroundColor(dividerColor) },
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()))
-        }
-        return wrapper
+        return wrapWithDivider(card)
     }
 
-    // --- Zone Detail ---
+    // ── Zone Detail ─────────────────────────────────────────────────────
 
     private fun openZoneDetail(index: Int) {
         editingZoneIndex = index
         val zone = zones[index]
 
         container.removeAllViews()
+        val detail = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 
-        val detail = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        zoneDetailView = detail
-
-        // Back button
-        val backBtn = makeTextButton("\u2190 Back") {
-            dismissOverlay()
-            saveZones()
-            buildZoneList()
-        }
-        detail.addView(backBtn)
-
-        // Zone name
-        val nameField = EditText(context).apply {
-            setText(zone.name)
-            setTextColor(textOnPanel)
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            background = GradientDrawable().apply {
-                setColor(panelBg)
-                cornerRadius = 8 * dp
-                setStroke((1 * dp).toInt(), dividerColor)
-            }
-            setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
-            isSingleLine = true
-            setOnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) {
-                    zones[editingZoneIndex] = zones[editingZoneIndex].copy(name = text.toString().trim())
-                }
-            }
-        }
-        detail.addView(nameField, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
-
-        // Position rectangle button
-        val posBtn = makePillButton("Position Rectangle", accentColor, textOnPanel) {
+        detail.addView(makeTextButton("\u2190 Back") {
+            dismissOverlay(); saveZones(); buildZoneList()
+        })
+        detail.addView(buildZoneNameField(zone))
+        detail.addView(makePillButton("Position Rectangle", accentColor, textOnPanel) {
             showZoneOverlay(editingZoneIndex)
-        }
-        detail.addView(posBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            setMargins(0, (4 * dp).toInt(), 0, (12 * dp).toInt())
-        })
-
-        // Sensitivity slider
-        val sensitivityPercent = (zone.sensitivity * 10000f).toInt() // 0.001→10, 0.01→100, 0.05→500
-        val sensitivityLabel = TextView(context).apply {
-            text = "Sensitivity: $sensitivityPercent%"
-            setTextColor(textOnPanel)
-            textSize = 13f
-            setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
-        }
-        detail.addView(sensitivityLabel)
-
-        val sensitivityHint = TextView(context).apply {
-            text = "How far you need to drag before the parameter reaches full deflection."
-            setTextColor(dimWhite)
-            textSize = 11f
-            setPadding(0, 0, 0, (4 * dp).toInt())
-        }
-        detail.addView(sensitivityHint)
-
-        val sensitivitySlider = SeekBar(context).apply {
-            max = 500 // maps to 0.001..0.05 (10..500 as %)
-            progress = sensitivityPercent.coerceIn(10, 500)
-            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val clamped = progress.coerceAtLeast(10)
-                    sensitivityLabel.text = "Sensitivity: $clamped%"
-                    if (fromUser) {
-                        val newSensitivity = clamped / 10000f
-                        zones[editingZoneIndex] = zones[editingZoneIndex].copy(sensitivity = newSensitivity)
-                    }
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
-        detail.addView(sensitivitySlider)
-
-        // Divider
+        }, centredWrap(topMargin = 4, bottomMargin = 12))
+        detail.addView(buildSensitivitySection(zone))
         detail.addView(makeDivider())
-
-        // Parameter bindings header
-        val bindingsLabel = TextView(context).apply {
-            text = "Parameter Bindings"
-            setTextColor(textOnPanel)
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
-        }
-        detail.addView(bindingsLabel)
-
-        val bindingsHint = TextView(context).apply {
-            text = "Drag inside this zone will drive these parameters."
-            setTextColor(dimWhite)
-            textSize = 11f
-            setPadding(0, 0, 0, (8 * dp).toInt())
-        }
-        detail.addView(bindingsHint)
-
-        // Binding rows
-        for ((bi, binding) in zone.bindings.withIndex()) {
-            detail.addView(buildBindingRow(binding, bi))
-        }
-
-        // Add binding button
-        val addBindingBtn = makePillButton("+ Add Parameter", Color.TRANSPARENT, textOnPanel) {
-            openParameterPicker()
-        }
-        detail.addView(addBindingBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = (8 * dp).toInt()
-        })
-
-        // Delete zone button
-        detail.addView(makeDivider((16 * dp).toInt()))
-        val deleteBtn = makePillButton("Delete Zone", 0xFFCC4444.toInt(), textOnPanel) {
-            zones.removeAt(editingZoneIndex)
-            dismissOverlay()
-            saveZones()
-            buildZoneList()
-        }
-        detail.addView(deleteBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        detail.addView(buildBindingsSection(zone))
+        detail.addView(makeDivider(topMargin = 16))
+        detail.addView(makePillButton("Delete Zone", dangerColor, textOnPanel) {
+            zones.removeAt(editingZoneIndex); dismissOverlay(); saveZones(); buildZoneList()
+        }, centredWrap())
 
         container.addView(detail)
     }
 
-    private fun buildBindingRow(binding: ParameterBinding, bindingIndex: Int): View {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, (6 * dp).toInt(), 0, (6 * dp).toInt())
+    private fun buildZoneNameField(zone: InteractionZone): View {
+        return makeRoundedEditText(zone.name).apply {
+            setTypeface(null, Typeface.BOLD)
+            textSize = 15f
+            setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) updateZone { it.copy(name = text.toString().trim()) }
+            }
+        }.let { field ->
+            // Wrap in a layout with margins
+            LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(field, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
+            }
+        }
+    }
+
+    private fun buildSensitivitySection(zone: InteractionZone): View {
+        val layout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val percent = (zone.sensitivity * 10000f).toInt()
+        val label = makeLabel("Sensitivity: $percent%", size = 13f, bold = false)
+        layout.addView(label)
+        layout.addView(makeHint("How far you need to drag before the parameter reaches full deflection."))
+        layout.addView(makeSeekBar(max = 500, progress = percent.coerceIn(10, 500)) { progress ->
+            val clamped = progress.coerceAtLeast(10)
+            label.text = "Sensitivity: $clamped%"
+            updateZone { it.copy(sensitivity = clamped / 10000f) }
+        })
+        return layout
+    }
+
+    private fun buildBindingsSection(zone: InteractionZone): View {
+        val layout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        layout.addView(makeLabel("Parameter Bindings"))
+        layout.addView(makeHint("Drag inside this zone will drive these parameters."))
+
+        for ((bi, binding) in zone.bindings.withIndex()) {
+            layout.addView(buildBindingRow(binding, bi))
         }
 
-        // Axis indicator
+        layout.addView(makePillButton("+ Add Parameter", Color.TRANSPARENT, textOnPanel) {
+            openParameterPicker()
+        }, centredWrap(topMargin = 8))
+
+        return layout
+    }
+
+    private fun buildBindingRow(binding: ParameterBinding, bindingIndex: Int): View {
+        val row = makeRow(vPad = 6)
+
+        // Axis toggle
         val axisBtn = TextView(context).apply {
-            text = if (binding.axis == DragAxis.HORIZONTAL) "\u2194" else "\u2195"
-            textSize = 20f
-            setTextColor(accentColor)
+            text = binding.axis.symbol
+            textSize = 20f; setTextColor(accentColor)
             setPadding((4 * dp).toInt(), 0, (8 * dp).toInt(), 0)
             isClickable = true
             setOnClickListener {
-                val zone = zones[editingZoneIndex]
-                val newAxis = if (binding.axis == DragAxis.HORIZONTAL) DragAxis.VERTICAL else DragAxis.HORIZONTAL
-                val updatedBinding = binding.copy(axis = newAxis)
-                val newBindings = zone.bindings.toMutableList().apply { set(bindingIndex, updatedBinding) }
-                zones[editingZoneIndex] = zone.copy(bindings = newBindings)
-                text = if (newAxis == DragAxis.HORIZONTAL) "\u2194" else "\u2195"
+                val newAxis = binding.axis.toggled
+                updateZoneBinding(bindingIndex) { it.copy(axis = newAxis) }
+                text = newAxis.symbol
             }
         }
         row.addView(axisBtn)
 
-        // Name + strength
+        // Name + strength (tap to edit)
         val textCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            isClickable = true
+            setOnClickListener { openBindingEditor(bindingIndex) }
         }
-        val nameLabel = TextView(context).apply {
-            text = binding.displayName
-            setTextColor(textOnPanel)
-            textSize = 13f
-        }
-        textCol.addView(nameLabel)
-
-        val strengthLabel = TextView(context).apply {
-            text = "${(binding.strength * 100).toInt()}%"
-            setTextColor(dimWhite)
-            textSize = 11f
-        }
-        textCol.addView(strengthLabel)
-
-        // Tap name to open strength editor
-        textCol.isClickable = true
-        textCol.setOnClickListener {
-            openBindingEditor(bindingIndex)
-        }
+        textCol.addView(makeLabel(binding.displayName, size = 13f, bold = false, topPad = 0, bottomPad = 0))
+        textCol.addView(makeHint("${(binding.strength * 100).toInt()}%", topPad = 0, bottomPad = 0))
         row.addView(textCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         // Remove button
-        val removeBtn = TextView(context).apply {
-            text = "\u2715"
-            textSize = 16f
-            setTextColor(0xFFCC4444.toInt())
+        row.addView(TextView(context).apply {
+            text = "\u2715"; textSize = 16f; setTextColor(dangerColor)
             setPadding((12 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
             isClickable = true
             setOnClickListener {
-                val zone = zones[editingZoneIndex]
-                val newBindings = zone.bindings.toMutableList().apply { removeAt(bindingIndex) }
-                zones[editingZoneIndex] = zone.copy(bindings = newBindings)
-                openZoneDetail(editingZoneIndex) // refresh
+                updateZone { z ->
+                    z.copy(bindings = z.bindings.toMutableList().apply { removeAt(bindingIndex) })
+                }
+                openZoneDetail(editingZoneIndex)
             }
-        }
-        row.addView(removeBtn)
+        })
 
         return row
     }
 
-    // --- Binding Editor (strength slider) ---
+    // ── Binding Editor ──────────────────────────────────────────────────
 
     private fun openBindingEditor(bindingIndex: Int) {
         editingBindingIndex = bindingIndex
-        val zone = zones[editingZoneIndex]
-        val binding = zone.bindings[bindingIndex]
+        val binding = zones[editingZoneIndex].bindings[bindingIndex]
 
         container.removeAllViews()
-        val editor = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        bindingEditorView = editor
+        val editor = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 
-        // Back
-        val backBtn = makeTextButton("\u2190 Back") {
-            openZoneDetail(editingZoneIndex)
-        }
-        editor.addView(backBtn)
-
-        // Title
-        val title = TextView(context).apply {
-            text = binding.displayName
-            setTextColor(textOnPanel)
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, (8 * dp).toInt(), 0, (12 * dp).toInt())
-        }
-        editor.addView(title)
-
-        // Axis toggle
-        val axisRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, (12 * dp).toInt())
-        }
-        val axisLabel = TextView(context).apply {
-            text = "Drag axis: "
-            setTextColor(textOnPanel)
-            textSize = 13f
-        }
-        axisRow.addView(axisLabel)
-
-        val btnH = makePillButton(
-            "\u2194 Horizontal",
-            if (binding.axis == DragAxis.HORIZONTAL) accentColor else Color.TRANSPARENT,
-            textOnPanel
-        ) {}
-        val btnV = makePillButton(
-            "\u2195 Vertical",
-            if (binding.axis == DragAxis.VERTICAL) accentColor else Color.TRANSPARENT,
-            textOnPanel
-        ) {}
-
-        fun updateAxisButtons(axis: DragAxis) {
-            val hBg = btnH.background as? GradientDrawable
-            val vBg = btnV.background as? GradientDrawable
-            if (axis == DragAxis.HORIZONTAL) {
-                hBg?.setColor(accentColor); vBg?.setColor(Color.TRANSPARENT)
-            } else {
-                vBg?.setColor(accentColor); hBg?.setColor(Color.TRANSPARENT)
-            }
-            updateBinding { it.copy(axis = axis) }
-        }
-
-        btnH.setOnClickListener { updateAxisButtons(DragAxis.HORIZONTAL) }
-        btnV.setOnClickListener { updateAxisButtons(DragAxis.VERTICAL) }
-
-        axisRow.addView(btnH, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, (6 * dp).toInt(), 0) })
-        axisRow.addView(btnV)
-        editor.addView(axisRow)
-
-        // Strength slider (-100..+100)
-        val strengthValueLabel = TextView(context).apply {
-            text = "Strength: ${(binding.strength * 100).toInt()}%"
-            setTextColor(accentColor)
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, (4 * dp).toInt())
-        }
-        editor.addView(strengthValueLabel)
-
-        val strengthSlider = SeekBar(context).apply {
-            max = 200 // maps to -100..+100
-            progress = ((binding.strength + 1f) * 100f).toInt().coerceIn(0, 200)
-            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val strength = (progress - 100) / 100f
-                    strengthValueLabel.text = "Strength: ${(strength * 100).toInt()}%"
-                    if (fromUser) {
-                        updateBinding { it.copy(strength = strength) }
-                    }
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
-        editor.addView(strengthSlider)
-
-        // Max value slider
-        val maxValueLabel = TextView(context).apply {
-            text = "Max value: ${binding.maxValue.toInt()}"
-            setTextColor(textOnPanel)
-            textSize = 13f
-            setPadding(0, 0, 0, (4 * dp).toInt())
-        }
-        editor.addView(maxValueLabel)
-
-        val maxSlider = SeekBar(context).apply {
-            max = 60 // 0..60
-            progress = binding.maxValue.toInt().coerceIn(0, 60)
-            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val mv = progress.coerceAtLeast(1).toFloat()
-                    maxValueLabel.text = "Max value: ${mv.toInt()}"
-                    if (fromUser) {
-                        updateBinding { it.copy(maxValue = mv) }
-                    }
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
-        editor.addView(maxSlider)
+        editor.addView(makeTextButton("\u2190 Back") { openZoneDetail(editingZoneIndex) })
+        editor.addView(makeLabel(binding.displayName, size = 15f, bottomPad = 12))
+        editor.addView(buildAxisToggle(binding))
+        editor.addView(buildStrengthSlider(binding))
+        editor.addView(buildMaxValueSlider(binding))
 
         container.addView(editor)
     }
 
-    private fun updateBinding(transform: (ParameterBinding) -> ParameterBinding) {
-        val zone = zones[editingZoneIndex]
-        val binding = zone.bindings[editingBindingIndex]
-        val updated = transform(binding)
-        val newBindings = zone.bindings.toMutableList().apply { set(editingBindingIndex, updated) }
-        zones[editingZoneIndex] = zone.copy(bindings = newBindings)
+    private fun buildAxisToggle(binding: ParameterBinding): View {
+        val row = makeRow(bottomPad = 12)
+        row.addView(makeLabel("Drag axis: ", size = 13f, bold = false, topPad = 0, bottomPad = 0))
+
+        val btnH = makePillButton("\u2194 Horizontal",
+            if (binding.axis == DragAxis.HORIZONTAL) accentColor else Color.TRANSPARENT, textOnPanel) {}
+        val btnV = makePillButton("\u2195 Vertical",
+            if (binding.axis == DragAxis.VERTICAL) accentColor else Color.TRANSPARENT, textOnPanel) {}
+
+        fun select(axis: DragAxis) {
+            (btnH.background as? GradientDrawable)
+                ?.setColor(if (axis == DragAxis.HORIZONTAL) accentColor else Color.TRANSPARENT)
+            (btnV.background as? GradientDrawable)
+                ?.setColor(if (axis == DragAxis.VERTICAL) accentColor else Color.TRANSPARENT)
+            updateBinding { it.copy(axis = axis) }
+        }
+        btnH.setOnClickListener { select(DragAxis.HORIZONTAL) }
+        btnV.setOnClickListener { select(DragAxis.VERTICAL) }
+
+        row.addView(btnH, wrapWithMarginEnd(6))
+        row.addView(btnV)
+        return row
     }
 
-    // --- Parameter Picker ---
+    private fun buildStrengthSlider(binding: ParameterBinding): View {
+        val layout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val label = TextView(context).apply {
+            text = "Strength: ${(binding.strength * 100).toInt()}%"
+            setTextColor(accentColor); textSize = 15f
+            setTypeface(null, Typeface.BOLD); gravity = Gravity.CENTER
+            setPadding(0, 0, 0, (4 * dp).toInt())
+        }
+        layout.addView(label)
+        layout.addView(makeSeekBar(max = 200,
+            progress = ((binding.strength + 1f) * 100f).toInt().coerceIn(0, 200)
+        ) { progress ->
+            val strength = (progress - 100) / 100f
+            label.text = "Strength: ${(strength * 100).toInt()}%"
+            updateBinding { it.copy(strength = strength) }
+        })
+        return layout
+    }
+
+    private fun buildMaxValueSlider(binding: ParameterBinding): View {
+        val layout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val label = makeLabel("Max value: ${binding.maxValue.toInt()}", size = 13f, bold = false)
+        layout.addView(label)
+        layout.addView(makeSeekBar(max = 60, progress = binding.maxValue.toInt().coerceIn(0, 60)) { progress ->
+            val mv = progress.coerceAtLeast(1).toFloat()
+            label.text = "Max value: ${mv.toInt()}"
+            updateBinding { it.copy(maxValue = mv) }
+        })
+        return layout
+    }
+
+    // ── Parameter Picker ────────────────────────────────────────────────
 
     private fun openParameterPicker() {
         val params = managerProvider()?.parameterList ?: return
+        val existingIds = zones[editingZoneIndex].bindings.map { it.paramId }.toSet()
 
         container.removeAllViews()
+        val picker = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 
-        val picker = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        picker.addView(makeTextButton("\u2190 Cancel") { openZoneDetail(editingZoneIndex) })
+        picker.addView(makeLabel("Choose a parameter", size = 14f))
 
-        val backBtn = makeTextButton("\u2190 Cancel") {
-            openZoneDetail(editingZoneIndex)
-        }
-        picker.addView(backBtn)
-
-        val title = TextView(context).apply {
-            text = "Choose a parameter"
-            setTextColor(textOnPanel)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-        }
-        picker.addView(title)
-
-        // Search
-        val searchField = EditText(context).apply {
-            hint = "Search..."
-            setHintTextColor(dimWhite)
-            setTextColor(textOnPanel)
-            textSize = 13f
-            background = GradientDrawable().apply {
-                setColor(panelBg)
-                cornerRadius = 8 * dp
-                setStroke((1 * dp).toInt(), dividerColor)
-            }
-            setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
-            isSingleLine = true
+        val searchField = makeRoundedEditText("").apply {
+            hint = "Search..."; setHintTextColor(dimWhite); textSize = 13f
         }
         picker.addView(searchField, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { setMargins(0, 0, 0, (8 * dp).toInt()) })
 
-        val existingIds = zones[editingZoneIndex].bindings.map { it.paramId }.toSet()
         val cellWrappers = mutableListOf<Pair<String, View>>()
-
         for (param in params) {
             if (param.max - param.min <= 0f) continue
-
             val alreadyAdded = param.id in existingIds
-            val cell = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(padH, (10 * dp).toInt(), padH, (10 * dp).toInt())
-                isClickable = !alreadyAdded
-                isFocusable = !alreadyAdded
-                if (!alreadyAdded) {
-                    setOnClickListener {
-                        addBindingForParam(param)
-                        openZoneDetail(editingZoneIndex)
-                    }
-                }
-            }
-
-            val nameLabel = TextView(context).apply {
-                text = param.displayName
-                setTextColor(if (alreadyAdded) dimWhite else textOnPanel)
-                textSize = 13f
-            }
-            cell.addView(nameLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-            if (alreadyAdded) {
-                val addedTag = TextView(context).apply {
-                    text = "added"
-                    setTextColor(dimWhite)
-                    textSize = 11f
-                }
-                cell.addView(addedTag)
-            }
-
-            val wrapper = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(cell)
-                addView(View(context).apply { setBackgroundColor(dividerColor) },
-                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()))
-            }
-            cellWrappers.add(param.displayName.lowercase() to wrapper)
-            picker.addView(wrapper)
+            val cell = buildParameterCell(param, alreadyAdded)
+            cellWrappers.add(param.displayName.lowercase() to cell)
+            picker.addView(cell)
         }
 
         searchField.addTextChangedListener(object : android.text.TextWatcher {
@@ -685,65 +418,73 @@ class ZoneEditorController(
         container.addView(picker)
     }
 
+    private fun buildParameterCell(param: LAppLive2DManager.ParameterInfo, alreadyAdded: Boolean): View {
+        val cell = makeRow(hPad = padH, vPad = 10).apply {
+            isClickable = !alreadyAdded
+            isFocusable = !alreadyAdded
+            if (!alreadyAdded) {
+                setOnClickListener {
+                    addBindingForParam(param)
+                    openZoneDetail(editingZoneIndex)
+                }
+            }
+        }
+
+        cell.addView(TextView(context).apply {
+            text = param.displayName
+            setTextColor(if (alreadyAdded) dimWhite else textOnPanel)
+            textSize = 13f
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        if (alreadyAdded) {
+            cell.addView(makeHint("added", topPad = 0, bottomPad = 0))
+        }
+
+        return wrapWithDivider(cell)
+    }
+
     private fun addBindingForParam(param: LAppLive2DManager.ParameterInfo) {
-        val zone = zones[editingZoneIndex]
         val isAngleParam = param.id.contains("Angle", ignoreCase = true)
         val defaultStrength = if (param.id.contains("AngleY") || param.id.contains("EyeBallY")) -1.0f else 1.0f
         val defaultMax = if (isAngleParam) 30f else (param.max - param.min) / 2f
 
-        val newBinding = ParameterBinding(
-            paramId = param.id,
-            displayName = param.displayName,
-            axis = DragAxis.HORIZONTAL,
-            strength = defaultStrength,
-            maxValue = defaultMax.coerceAtLeast(1f)
-        )
-        val newBindings = zone.bindings + newBinding
-        zones[editingZoneIndex] = zone.copy(bindings = newBindings)
+        updateZone { zone ->
+            zone.copy(bindings = zone.bindings + ParameterBinding(
+                paramId = param.id,
+                displayName = param.displayName,
+                axis = DragAxis.HORIZONTAL,
+                strength = defaultStrength,
+                maxValue = defaultMax.coerceAtLeast(1f)
+            ))
+        }
     }
 
-    // --- Region Visibility Overlay ---
+    // ── Region Visibility Overlay ───────────────────────────────────────
 
     private fun showRegionOverlay() {
         val host = overlayHost ?: return
         hideRegionOverlay()
-
-        val overlay = ZoneVisualOverlayView(
-            context = context,
-            zones = zones,
-            modelScale = modelScale,
-            modelOffsetX = modelOffsetX,
-            modelOffsetY = modelOffsetY
-        )
+        val overlay = ZoneVisualOverlayView(context, zones, modelScale, modelOffsetX, modelOffsetY)
         regionOverlay = overlay
-
-        // Add below the panel (index 0 = GLSurfaceView, so add at 1)
         host.addView(overlay, 1, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
         ))
     }
 
     private fun hideRegionOverlay() {
-        val host = overlayHost ?: return
-        regionOverlay?.let {
-            host.removeView(it)
-            regionOverlay = null
-        }
+        regionOverlay?.let { overlayHost?.removeView(it) }
+        regionOverlay = null
     }
 
-    /** Refresh the region overlay with current zone data. */
     private fun refreshRegionOverlay() {
         regionOverlay?.updateZones(zones)
     }
 
-    // --- Zone Position Editor Overlay ---
+    // ── Zone Position Editor Overlay ────────────────────────────────────
 
     private fun showZoneOverlay(index: Int) {
         val host = overlayHost ?: return
         dismissOverlay()
-
-        // Collapse the panel and hide the hint so the user sees the full model
         onPanelVisibility(false)
         onHintVisibility(false)
 
@@ -764,101 +505,72 @@ class ZoneEditorController(
         overlayPreEditRect = RectF(zone.rect)
 
         host.addView(overlay, host.childCount - 1, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        val btnRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        val btnRow = makeRow().apply { tag = "zone_overlay_done_btn" }
 
-        val cancelBtn = makePillButton("Cancel", Color.TRANSPARENT, textOnPanel) {
-            // Restore pre-edit rect
-            overlayPreEditRect?.let { original ->
-                zones[index] = zones[index].copy(rect = original)
-            }
+        btnRow.addView(makePillButton("Cancel", Color.TRANSPARENT, textOnPanel) {
+            overlayPreEditRect?.let { zones[index] = zones[index].copy(rect = it) }
             dismissOverlay()
-        }
-        btnRow.addView(cancelBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, (6 * dp).toInt(), 0) })
+        }, wrapWithMarginEnd(6))
 
-        val centreBtn = makePillButton("Centre", Color.TRANSPARENT, textOnPanel) {
-            // Centre on display: find screen centre in model space
+        btnRow.addView(makePillButton("Centre", Color.TRANSPARENT, textOnPanel) {
             val screenCentre = ZoneTransform.screenToModel(
                 RectF(0.5f, 0.5f, 0.5f, 0.5f), modelScale, modelOffsetX, modelOffsetY
             )
-            val currentZone = zones[index]
-            val w = currentZone.rect.width()
-            val h = currentZone.rect.height()
-            val centred = RectF(
-                screenCentre.left - w / 2f,
-                screenCentre.top - h / 2f,
-                screenCentre.left + w / 2f,
-                screenCentre.top + h / 2f
-            )
-            zones[index] = currentZone.copy(rect = centred)
+            val w = zones[index].rect.width()
+            val h = zones[index].rect.height()
+            zones[index] = zones[index].copy(rect = RectF(
+                screenCentre.left - w / 2f, screenCentre.top - h / 2f,
+                screenCentre.left + w / 2f, screenCentre.top + h / 2f
+            ))
             refreshRegionOverlay()
-            // Recreate overlay to show new position
             dismissOverlay()
             showZoneOverlay(index)
-        }
-        btnRow.addView(centreBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, (6 * dp).toInt(), 0) })
+        }, wrapWithMarginEnd(6))
 
-        val doneBtn = makePillButton("Done", accentColor, textOnPanel) {
-            overlayPreEditRect = null
-            dismissOverlay()
-            saveZones()
-        }
-        btnRow.addView(doneBtn)
+        btnRow.addView(makePillButton("Done", accentColor, textOnPanel) {
+            overlayPreEditRect = null; dismissOverlay(); saveZones()
+        })
 
-        btnRow.tag = "zone_overlay_done_btn"
         overlayDoneBtn = btnRow
-
         host.addView(btnRow, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             topMargin = (48 * dp).toInt()
         })
     }
 
-    fun dismissOverlay() {
-        val host = overlayHost ?: return
-        val hadOverlay = activeOverlay != null
-        activeOverlay?.let {
-            host.removeView(it)
-            activeOverlay = null
-        }
-        overlayDoneBtn?.let {
-            host.removeView(it)
-            overlayDoneBtn = null
-        }
-        // Restore the panel and hint if we were showing an overlay
-        if (hadOverlay) {
-            onPanelVisibility(true)
-            onHintVisibility(true)
+    // ── Zone/Binding Mutation Helpers ────────────────────────────────────
+
+    private fun updateZone(transform: (InteractionZone) -> InteractionZone) {
+        zones[editingZoneIndex] = transform(zones[editingZoneIndex])
+    }
+
+    private fun updateZoneBinding(bindingIndex: Int, transform: (ParameterBinding) -> ParameterBinding) {
+        updateZone { zone ->
+            val updated = zone.bindings.toMutableList().apply {
+                set(bindingIndex, transform(this[bindingIndex]))
+            }
+            zone.copy(bindings = updated)
         }
     }
 
-    // --- Helpers ---
+    private fun updateBinding(transform: (ParameterBinding) -> ParameterBinding) {
+        updateZoneBinding(editingBindingIndex, transform)
+    }
 
     private fun addNewZone() {
-        val newZone = InteractionZone(
+        zones.add(InteractionZone(
             id = UUID.randomUUID().toString(),
             name = "Zone ${zones.size + 1}",
             color = ZoneRepository.nextColor(zones),
             rect = RectF(0.30f, 0.40f, 0.70f, 0.60f),
             bindings = emptyList(),
             spring = ZoneRepository.defaultSpring()
-        )
-        zones.add(newZone)
+        ))
         saveZones()
         openZoneDetail(zones.size - 1)
     }
@@ -869,58 +581,124 @@ class ZoneEditorController(
         refreshRegionOverlay()
     }
 
-    /** Hide region overlay when leaving the interaction tab. */
-    fun hideRegionsOnTabChange() {
-        hideRegionOverlay()
-        regionsVisible = false
+    // ── UI Factory Helpers ──────────────────────────────────────────────
+
+    private fun makeRow(
+        hPad: Int = 0,
+        vPad: Int = 0,
+        topPad: Int = vPad,
+        bottomPad: Int = vPad
+    ): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(hPad, (topPad * dp).toInt(), hPad, (bottomPad * dp).toInt())
     }
+
+    private fun makeLabel(
+        text: String,
+        size: Float = 13f,
+        bold: Boolean = true,
+        topPad: Int = 8,
+        bottomPad: Int = 4
+    ): TextView = TextView(context).apply {
+        this.text = text
+        setTextColor(textOnPanel)
+        textSize = size
+        if (bold) setTypeface(null, Typeface.BOLD)
+        setPadding(0, (topPad * dp).toInt(), 0, (bottomPad * dp).toInt())
+    }
+
+    private fun makeHint(
+        text: String,
+        maxLines: Int = Int.MAX_VALUE,
+        topPad: Int = 0,
+        bottomPad: Int = 4
+    ): TextView = TextView(context).apply {
+        this.text = text
+        setTextColor(dimWhite)
+        textSize = 11f
+        this.maxLines = maxLines
+        setPadding(0, (topPad * dp).toInt(), 0, (bottomPad * dp).toInt())
+    }
+
+    private fun makeRoundedEditText(initialText: String): EditText = EditText(context).apply {
+        setText(initialText)
+        setTextColor(textOnPanel)
+        textSize = 13f
+        background = GradientDrawable().apply {
+            setColor(panelBg)
+            cornerRadius = 8 * dp
+            setStroke((1 * dp).toInt(), dividerColor)
+        }
+        setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+        isSingleLine = true
+    }
+
+    private fun makeSeekBar(max: Int, progress: Int, onChanged: (Int) -> Unit): SeekBar =
+        SeekBar(context).apply {
+            this.max = max
+            this.progress = progress
+            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                    if (fromUser) onChanged(value)
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
 
     private fun makePillButton(
-        label: String,
-        fillColor: Int,
-        textColor: Int,
-        onClick: () -> Unit
-    ): Button {
-        return Button(context).apply {
-            text = label
-            setTextColor(textColor)
-            textSize = 13f
-            isAllCaps = false
-            val outlineColor = ContextCompat.getColor(context, R.color.panel_btn_outline)
-            val shape = GradientDrawable().apply {
-                cornerRadius = 24 * dp
-                setColor(fillColor)
-                if (fillColor == Color.TRANSPARENT) {
-                    setStroke((1.5f * dp).toInt(), outlineColor)
-                }
-            }
-            background = shape
-            setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
-            minHeight = 0
-            minimumHeight = 0
-            stateListAnimator = null
-            setOnClickListener { onClick() }
+        label: String, fillColor: Int, textColor: Int, onClick: () -> Unit
+    ): Button = Button(context).apply {
+        text = label; setTextColor(textColor); textSize = 13f; isAllCaps = false
+        val outlineColor = ContextCompat.getColor(context, R.color.panel_btn_outline)
+        background = GradientDrawable().apply {
+            cornerRadius = 24 * dp; setColor(fillColor)
+            if (fillColor == Color.TRANSPARENT) setStroke((1.5f * dp).toInt(), outlineColor)
         }
+        setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
+        minHeight = 0; minimumHeight = 0; stateListAnimator = null
+        setOnClickListener { onClick() }
     }
 
-    private fun makeTextButton(label: String, onClick: () -> Unit): TextView {
-        return TextView(context).apply {
-            text = label
-            setTextColor(accentColor)
-            textSize = 14f
-            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { onClick() }
-        }
+    private fun makeTextButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
+        text = label; setTextColor(accentColor); textSize = 14f
+        setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
+        isClickable = true; isFocusable = true
+        setOnClickListener { onClick() }
     }
 
-    private fun makeDivider(topMargin: Int = (8 * dp).toInt()): View {
-        return View(context).apply {
-            setBackgroundColor(dividerColor)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
-            ).apply { setMargins(0, topMargin, 0, (8 * dp).toInt()) }
-        }
+    private fun makeDivider(topMargin: Int = (8 * dp).toInt()): View = View(context).apply {
+        setBackgroundColor(dividerColor)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+        ).apply { setMargins(0, topMargin, 0, (8 * dp).toInt()) }
+    }
+
+    private fun wrapWithDivider(view: View): View = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(view)
+        addView(View(context).apply { setBackgroundColor(dividerColor) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()))
+    }
+
+    private fun wrapWithMarginEnd(marginDp: Int) = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+    ).apply { setMargins(0, 0, (marginDp * dp).toInt(), 0) }
+
+    private fun centredWrap(topMargin: Int = 0, bottomMargin: Int = 0) = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+    ).apply {
+        gravity = Gravity.CENTER_HORIZONTAL
+        setMargins(0, (topMargin * dp).toInt(), 0, (bottomMargin * dp).toInt())
     }
 }
+
+/** Symbol for display (↔ or ↕). */
+private val DragAxis.symbol: String
+    get() = if (this == DragAxis.HORIZONTAL) "\u2194" else "\u2195"
+
+/** Toggle to the other axis. */
+private val DragAxis.toggled: DragAxis
+    get() = if (this == DragAxis.HORIZONTAL) DragAxis.VERTICAL else DragAxis.HORIZONTAL
