@@ -23,7 +23,8 @@ data class ChatMessage(
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val isStreaming: Boolean = false,
-    val mode: ChatMode = ChatMode.Short
+    val mode: ChatMode = ChatMode.Short,
+    val speechState: SpeechState = SpeechState.Idle
 ) {
     /** In short mode, only show the latest user+assistant exchange. */
     val visibleMessages: List<ChatMessage>
@@ -44,13 +45,37 @@ data class ChatUiState(
  * Scoped to the ChatOverlayManager lifecycle (not a ViewModel subclass
  * since we're running in a Service, not an Activity).
  */
-class ChatOverlayViewModel {
+class ChatOverlayViewModel(
+    private val speechManager: SpeechRecognizerManager
+) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var streamJob: Job? = null
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    init {
+        // Observe speech state and auto-send on final result
+        scope.launch {
+            speechManager.state.collect { speechState ->
+                _uiState.update { it.copy(speechState = speechState) }
+                if (speechState is SpeechState.Result) {
+                    onSend(speechState.finalText)
+                    // Reset speech state after sending
+                    speechManager.resetToIdle()
+                }
+            }
+        }
+    }
+
+    fun onStartListening() {
+        speechManager.startListening()
+    }
+
+    fun onStopListening() {
+        speechManager.stopListening()
+    }
 
     fun onModeChange(mode: ChatMode) {
         _uiState.update { it.copy(mode = mode) }
