@@ -36,7 +36,10 @@ fun ChatPanel(
     mode: ChatMode = ChatMode.Short,
     onModeChange: (ChatMode) -> Unit = {},
     onSend: (String) -> Unit = {},
-    onCollapseFinished: () -> Unit = {}
+    onCollapseFinished: () -> Unit = {},
+    speechState: SpeechState = SpeechState.Idle,
+    onPressToTalkStart: () -> Unit = {},
+    onPressToTalkEnd: () -> Unit = {}
 ) {
     val revealFraction = remember { Animatable(0f) }
 
@@ -91,7 +94,7 @@ fun ChatPanel(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 4.dp),
+                    .padding(end = 8.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 HistoryButton(
@@ -132,7 +135,13 @@ fun ChatPanel(
 
             // Input bar — inset to align with message bubbles (4dp panel + 10dp pointer)
             Box(modifier = Modifier.padding(start = 14.dp, end = 4.dp)) {
-                ChatInputBar(onSend = onSend)
+                ChatInputBar(
+                    onSend = onSend,
+                    isListening = speechState is SpeechState.Listening,
+                    partialTranscript = (speechState as? SpeechState.Listening)?.partialText.orEmpty(),
+                    onPressToTalkStart = onPressToTalkStart,
+                    onPressToTalkEnd = onPressToTalkEnd
+                )
             }
         }
     }

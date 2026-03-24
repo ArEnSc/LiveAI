@@ -45,7 +45,8 @@ class ChatOverlayManager(
 
     private val isExpanded = mutableStateOf(false)
     private val panelVisible = mutableStateOf(false)
-    private val viewModel = ChatOverlayViewModel()
+    private val speechManager = SpeechRecognizerManager(context)
+    private val viewModel = ChatOverlayViewModel(speechManager)
 
     private val dp get() = context.resources.displayMetrics.density
     private val screenWidth get() = context.resources.displayMetrics.widthPixels
@@ -179,7 +180,10 @@ class ChatOverlayManager(
                 mode = uiState.mode,
                 onModeChange = viewModel::onModeChange,
                 onSend = viewModel::onSend,
-                onCollapseFinished = ::removePanel
+                onCollapseFinished = ::removePanel,
+                speechState = uiState.speechState,
+                onPressToTalkStart = viewModel::onStartListening,
+                onPressToTalkEnd = viewModel::onStopListening
             )
         }
         windowManager.addView(panelView, panelParams)
@@ -245,6 +249,7 @@ class ChatOverlayManager(
     }
 
     fun destroy() {
+        speechManager.destroy()
         viewModel.destroy()
         panelView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) {}

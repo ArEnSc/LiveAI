@@ -1,5 +1,11 @@
 package com.example.liveai.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,14 +36,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Single-line text input with a send button.
- * Calls [onSend] with the trimmed text and clears the field.
+ * Single-line text input with a send button that swaps to a push-to-talk
+ * mic button when the text field is empty. Shows partial speech transcript
+ * as placeholder text while listening.
  */
 @Composable
 fun ChatInputBar(
-    onSend: (String) -> Unit
+    onSend: (String) -> Unit,
+    isListening: Boolean = false,
+    partialTranscript: String = "",
+    onPressToTalkStart: () -> Unit = {},
+    onPressToTalkEnd: () -> Unit = {}
 ) {
     var text by remember { mutableStateOf("") }
+    val hasText = text.isNotBlank()
 
     fun submit() {
         val trimmed = text.trim()
@@ -72,9 +84,13 @@ fun ChatInputBar(
             decorationBox = { innerTextField ->
                 if (text.isEmpty()) {
                     Text(
-                        text = "Ask anything...",
+                        text = when {
+                            isListening && partialTranscript.isNotEmpty() -> partialTranscript
+                            isListening -> "Listening..."
+                            else -> "Ask anything..."
+                        },
                         style = TextStyle(
-                            color = ChatColors.OnSurfaceDim,
+                            color = if (isListening) ChatColors.Purple else ChatColors.OnSurfaceDim,
                             fontSize = 14.sp
                         )
                     )
@@ -83,19 +99,41 @@ fun ChatInputBar(
             }
         )
 
-        IconButton(
-            onClick = ::submit,
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(if (text.isNotBlank()) ChatColors.Purple else ChatColors.SurfaceDim)
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Send,
-                contentDescription = "Send",
-                tint = if (text.isNotBlank()) ChatColors.Surface else ChatColors.OnSurfaceDim,
-                modifier = Modifier.size(18.dp)
-            )
+        // Swap between send button and push-to-talk mic button
+        AnimatedContent(
+            targetState = hasText,
+            transitionSpec = {
+                (fadeIn(animationSpec = androidx.compose.animation.core.tween(150)) +
+                    scaleIn(initialScale = 0.8f))
+                    .togetherWith(
+                        fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) +
+                            scaleOut(targetScale = 0.8f)
+                    )
+            },
+            label = "inputAction"
+        ) { showSend ->
+            if (showSend) {
+                IconButton(
+                    onClick = ::submit,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(ChatColors.Purple)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = "Send",
+                        tint = ChatColors.Surface,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                PushToTalkButton(
+                    isListening = isListening,
+                    onPressStart = onPressToTalkStart,
+                    onPressEnd = onPressToTalkEnd
+                )
+            }
         }
     }
 }
