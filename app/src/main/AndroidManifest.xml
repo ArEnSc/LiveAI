@@ -32,6 +32,17 @@
             android:name=".MainActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".catalog.CatalogActivity"
+            android:exported="true"
+            android:label="Component Catalog"
+            android:theme="@style/Theme.LiveAI">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".OverlayService"
             android:exported="false"
