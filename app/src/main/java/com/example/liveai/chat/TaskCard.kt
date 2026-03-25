@@ -52,14 +52,13 @@ fun TaskCard(
     onClear: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val statusColor = Pgr.OnCard
-    val bgColor = when (task.status) {
-        TaskStatus.QUEUED -> Pgr.BgQueued
-        TaskStatus.RUNNING -> Pgr.BgRunning
-        TaskStatus.SUSPENDED -> Pgr.BgSuspended
-        TaskStatus.COMPLETED -> Pgr.BgCompleted
-        TaskStatus.FAILED -> Pgr.BgFailed
-        TaskStatus.CANCELLED -> Pgr.BgCancelled
+    val (fillLight, fillDark) = when (task.status) {
+        TaskStatus.QUEUED -> Pgr.BgQueued to Pgr.BgQueuedDark
+        TaskStatus.RUNNING -> Pgr.BgRunning to Pgr.BgRunningDark
+        TaskStatus.SUSPENDED -> Pgr.BgSuspended to Pgr.BgSuspendedDark
+        TaskStatus.COMPLETED -> Pgr.BgCompleted to Pgr.BgCompletedDark
+        TaskStatus.FAILED -> Pgr.BgFailed to Pgr.BgFailedDark
+        TaskStatus.CANCELLED -> Pgr.BgCancelled to Pgr.BgCancelledDark
     }
     val cutDp = 8.dp
     val shape = ChamferedShape(cutDp)
@@ -68,10 +67,8 @@ fun TaskCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(bgColor)
             .drawBehind {
-                drawChamferedBorder(Color.White.copy(alpha = 0.2f), cutDp.toPx(), 0.8f)
-                drawCornerBrackets(Color.White.copy(alpha = 0.15f), armLength = 7f, strokeWidth = 0.8f, inset = 2f)
+                drawPgrCard(fillLight, fillDark, cutSize = cutDp.toPx())
             }
             .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine() else Modifier)
             .padding(10.dp)
@@ -82,7 +79,7 @@ fun TaskCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             // Status indicator — diamond shape
-            TaskStatusDiamond(status = task.status, color = statusColor)
+            TaskStatusDiamond(status = task.status, color = Pgr.OnCard)
 
             Spacer(modifier = Modifier.width(10.dp))
 
@@ -116,7 +113,7 @@ fun TaskCard(
             }
 
             // Actions
-            TaskActions(task.status, onPause, onResume, onCancel, onClear, statusColor)
+            TaskActions(task.status, onPause, onResume, onCancel, onClear, Pgr.OnCard)
         }
 
         // Progress bar for RUNNING

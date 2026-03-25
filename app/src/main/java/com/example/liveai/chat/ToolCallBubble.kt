@@ -60,10 +60,10 @@ fun ToolCallBubble(
         is ToolCallStatus.Complete -> Pgr.Green
         is ToolCallStatus.Error -> Pgr.Red
     }
-    val bgColor = when (display.status) {
-        is ToolCallStatus.InProgress -> Pgr.BgToolActive
-        is ToolCallStatus.Complete -> Pgr.BgToolDone
-        is ToolCallStatus.Error -> Pgr.BgToolError
+    val (fillLight, fillDark) = when (display.status) {
+        is ToolCallStatus.InProgress -> Pgr.BgToolActive to Pgr.BgToolActiveDark
+        is ToolCallStatus.Complete -> Pgr.BgToolDone to Pgr.BgToolDoneDark
+        is ToolCallStatus.Error -> Pgr.BgToolError to Pgr.BgToolErrorDark
     }
     val cutDp = 6.dp
     val shape = ChamferedShape(cutDp)
@@ -72,9 +72,8 @@ fun ToolCallBubble(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(bgColor)
             .drawBehind {
-                drawChamferedBorder(Color.White.copy(alpha = 0.2f), cutDp.toPx(), 0.8f)
+                drawPgrCard(fillLight, fillDark, cutSize = cutDp.toPx())
             }
             .then(if (display.status is ToolCallStatus.InProgress) Modifier.scanLine() else Modifier)
             .padding(8.dp)
@@ -84,9 +83,7 @@ fun ToolCallBubble(
             Box(
                 modifier = Modifier
                     .size(18.dp)
-                    .drawBehind {
-                        drawCornerBrackets(Color.White.copy(alpha = 0.3f), armLength = 4f, strokeWidth = 0.8f)
-                    },
+                    ,
                 contentAlignment = Alignment.Center
             ) {
                 when (display.status) {
