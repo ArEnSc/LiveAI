@@ -1,5 +1,8 @@
 # LiveAI Agent System — Implementation Plan
 
+> **Full stage details**: [docs/stages/](docs/stages/README.md)
+> Each stage is its own file with goal, tests, and files.
+
 ## Approach: UI-First, Each Stage Testable
 
 Build from what the user sees/hears outward. Every stage produces either a
@@ -18,681 +21,88 @@ until real backends are wired in.
 ✅ OpenAI SDK dependency               — in build.gradle, not yet used
 ```
 
----
+## Stage Quick Reference
 
-## Stage 1: Data Model
+| # | Stage | Type | Test | Status |
+|---|-------|------|------|--------|
+| [1](docs/stages/stage-01-data-model.md) | Data Model | Pure Kotlin | JUnit | Not Started |
+| [2](docs/stages/stage-02-chat-ui-tool-call-bubbles.md) | Tool Call Bubbles UI | Compose | Preview | Not Started |
+| [3](docs/stages/stage-03-task-list-ui.md) | Task List UI | Compose | Preview | Not Started |
+| [4](docs/stages/stage-04-agent-status-bar-cancel-button.md) | Agent Status Bar UI | Compose | Preview | Not Started |
+| [5](docs/stages/stage-05-tts-indicator-speaking-state.md) | TTS Indicator UI | Compose | Preview | Not Started |
+| [6](docs/stages/stage-06-settings-ui.md) | Settings UI | Compose | Preview | Not Started |
+| [7](docs/stages/stage-07-provider-interfaces-fakes.md) | Provider Interfaces + Fakes | Pure Kotlin | JUnit | Not Started |
+| [8a](docs/stages/stage-8a-context-manager.md) | ContextManager + Simple + Registry + TokenCounter | Pure Kotlin | JUnit | Not Started |
+| [8b](docs/stages/stage-8b-lossless-dag.md) | LosslessContextManager (DAG + Room) | Room | Instrumented | Not Started |
+| [9](docs/stages/stage-09-agent-loop.md) | AgentLoop + PauseGate + Prompt + Retry | Pure Kotlin | Turbine | Not Started |
+| [10](docs/stages/stage-10-orchestrator-taskmanager-ttsqueue.md) | Orchestrator + TaskManager + TtsQueue | Pure Kotlin | Turbine | Not Started |
+| [11](docs/stages/stage-11-wire-ui-to-orchestrator-persistence.md) | Wire UI to Orchestrator + Persistence | Integration | Turbine | Not Started |
+| [12](docs/stages/stage-12-openai-llmprovider-retrystrategy.md) | OpenAI LlmProvider + RetryStrategy | Network | MockWebServer | Not Started |
+| [13](docs/stages/stage-13-tts-providers.md) | TTS Providers | Audio | MockWebServer | Not Started |
+| [14](docs/stages/stage-14-accessibility-tools.md) | Accessibility Tools | Platform | Instrumented | Not Started |
+| [15](docs/stages/stage-15-shell-binary-execution-tools.md) | Shell + Binary Tools | Platform | JUnit | Not Started |
+| [16](docs/stages/stage-16-camera-tools.md) | Camera Tools | Platform | Instrumented | Not Started |
+| [17](docs/stages/stage-17-appcontainer-settings-wiring.md) | AppContainer + Settings Wiring | DI | JUnit | Not Started |
+| [18](docs/stages/stage-18-networkmonitor.md) | NetworkMonitor | Platform | JUnit + Instrumented | Not Started |
+| [19](docs/stages/stage-19-hapticfeedbackmanager.md) | HapticFeedbackManager | Platform | JUnit | Not Started |
+| [20](docs/stages/stage-20-notification-system-blind-optimized.md) | Notification System (Blind-Optimized) | Platform | Instrumented | Not Started |
+| [21](docs/stages/stage-21-permission-flow-update.md) | Permission Flow Update | Platform | Instrumented | Not Started |
 
-**Goal**: All data types that the system uses. Pure Kotlin, no Android deps.
-This is the vocabulary everything else speaks.
-
-**What's testable**: Unit tests — serialization, status transitions, priority ordering.
-
-**Types**:
-- `Message` (sealed: System, User, Assistant, ToolResult)
-- `LlmResponse`, `ToolCallRequest`, `ToolDefinition`, `FinishReason`, `TokenUsage`
-- `BackgroundTask`, `TaskStatus`, `TaskProgress`, `TaskResult`, `TaskPriority`
-- `TtsUtterance`, `UtterancePriority`, `UtteranceSource`
-- `AgentLoopState` (sealed), `AgentEvent` (sealed)
-- `OrchestratorState`, `MainChannelState`, `TtsState`
-- `Notification`, `NotificationType`
-- `ShellCommand`, `ShellResult`, `BundledBinary`
-- `InputSource`, `Conversation`, `LlmConfig`, `TtsConfig`
-
-**Tests**:
-- TaskStatus transitions: QUEUED→RUNNING valid, COMPLETED→RUNNING invalid
-- UtterancePriority ordering: IMMEDIATE > MAIN > NOTIFICATION > LOW
-- Message serialization round-trip (all variants)
-- BackgroundTask with null result vs Success vs Failure
-- AgentLoopState sealed exhaustiveness (when expressions cover all cases)
-
-**Files**:
-```
-agent/model/
-├── Message.kt
-├── LlmResponse.kt
-├── ToolCallRequest.kt
-├── ToolDefinition.kt
-├── AgentLoopState.kt
-├── AgentEvent.kt
-├── BackgroundTask.kt
-├── TtsUtterance.kt
-├── Notification.kt
-├── OrchestratorState.kt
-├── ShellTypes.kt
-├── Conversation.kt
-└── Configs.kt                    — LlmConfig, TtsConfig
-```
-
-**Status**: Not Started
-
----
-
-## Stage 2: Chat UI — Tool Call Bubbles
-
-**Goal**: New message bubble types that show when the agent is using tools.
-Renders in the existing ChatPanel. Driven by fake data.
-
-**What's visible**: Tool call messages appear in chat — "Using read_screen...",
-"Result: WhatsApp open with 2 messages", with a distinct visual style.
-
-**What's testable**: Composable renders correctly with different message types.
-
-**New UI elements**:
-```
-┌──────────────────────────────┐
-│ 🔧 Reading screen...         │  ← ToolCallBubble (in-progress)
-│    read_screen               │
-└──────────────────────────────┘
-
-┌──────────────────────────────┐
-│ ✓ Screen read (0.8s)         │  ← ToolCallBubble (complete)
-│    WhatsApp - Chat list:     │
-│    Mom (2 new), Work Group   │
-└──────────────────────────────┘
-
-┌──────────────────────────────┐
-│ ✗ Error: Service not enabled │  ← ToolCallBubble (error)
-└──────────────────────────────┘
-```
-
-**Changes**:
-- Extend `ChatMessage` to support tool call display (or new sealed type)
-- `ToolCallBubble` composable — shows tool name, status, duration, result preview
-- `ChatPanel` renders tool call messages between user/assistant bubbles
-- Fake data in ViewModel to demonstrate all states
-
-**Tests**:
-- ToolCallBubble renders with in-progress state (shows spinner + tool name)
-- ToolCallBubble renders with complete state (shows checkmark + duration + result)
-- ToolCallBubble renders with error state (shows X + error message)
-- ChatPanel with mixed messages (user, tool call, assistant) renders in order
-- Result text truncated beyond 2 lines with "Show more" (accessibility: full text readable)
-
-**Files**:
-```
-chat/
-├── ToolCallBubble.kt              — NEW
-├── MessageBubble.kt               — MODIFIED: delegate to ToolCallBubble for tool messages
-├── ChatPanel.kt                   — MODIFIED: handle new message types
-└── ChatOverlayViewModel.kt        — MODIFIED: add fake tool call messages for demo
-```
-
-**Status**: Not Started
-
----
-
-## Stage 3: Task List UI
-
-**Goal**: Show background tasks in the overlay panel. Fake data.
-Tab bar at top of panel switches between Chat and Tasks views.
-
-**What's visible**: Task cards with progress bars, status badges, phase text.
+## Work Waves
 
 ```
-┌──────────────────────────────────┐
-│  [💬 Chat]  [📋 Tasks (2)]       │  ← tab bar
-├──────────────────────────────────┤
-│                                  │
-│  ⏳ Summarize lease PDF    60%   │
-│     ████████████░░░░░░░░         │
-│     summarizing... page 7 of 12  │
-│                    [Pause][Cancel]│
-│                                  │
-│  🕐 Check pharmacy hours         │
-│     queued                       │
-│                    [Cancel]      │
-│                                  │
-│  ✅ Read Mom's texts              │
-│     completed in 2.3s            │
-│     "dinner at 6, need a ride?"  │
-│                    [Clear]       │
-│                                  │
-└──────────────────────────────────┘
+WAVE 1:  Stage 1 (Data Model)
+WAVE 2:  Stages 2-6 in parallel (all UI, fake data)
+WAVE 3:  Stages 7 + 8a in parallel (interfaces)
+WAVE 4:  Stages 8b + 9 in parallel (DAG + AgentLoop)
+WAVE 5:  Stage 10 (Orchestrator)
+WAVE 6:  Stage 11 (Wire UI)
+WAVE 7:  Stages 12-16, 18-21 all in parallel (providers + tools + platform)
+WAVE 8:  Stage 17 (AppContainer — final integration)
 ```
 
-**New UI elements**:
-- `OverlayTabBar` — switches between Chat and Tasks
-- `TaskListPanel` — LazyColumn of task cards
-- `TaskCard` — individual task with progress bar, status, actions
-- `TaskProgressBar` — animated progress with indeterminate mode
-- `TaskStatusBadge` — QUEUED/RUNNING/SUSPENDED/COMPLETED/FAILED/CANCELLED
-
-**Tests**:
-- TaskCard renders each status correctly (QUEUED shows clock, RUNNING shows spinner, etc.)
-- TaskProgressBar with percent=0.6 fills 60%
-- TaskProgressBar with percent=null shows indeterminate animation
-- TaskCard RUNNING shows Pause + Cancel buttons
-- TaskCard SUSPENDED shows Resume + Cancel buttons
-- TaskCard COMPLETED shows Clear button + result preview
-- TaskCard QUEUED shows Cancel button only
-- TaskListPanel with 0 tasks shows "No background tasks"
-- Tab bar shows task count badge
-- Tab bar switches between Chat and Tasks views
-
-**Files**:
-```
-chat/
-├── OverlayTabBar.kt               — NEW: Chat / Tasks tab switcher
-├── TaskListPanel.kt               — NEW: scrollable task list
-├── TaskCard.kt                    — NEW: individual task card
-├── TaskProgressBar.kt             — NEW: animated progress
-├── TaskStatusBadge.kt             — NEW: status indicator
-├── ChatPanel.kt                   — MODIFIED: wrapped in tab container
-└── ChatOverlayViewModel.kt        — MODIFIED: add fake tasks, tab state
-```
-
-**Status**: Not Started
-
----
-
-## Stage 4: Agent Status Bar + Cancel Button
-
-**Goal**: Visual indicator in chat showing what the agent is doing right now.
-Cancel button to stop the current operation. Driven by `AgentLoopState`.
-
-**What's visible**: Status bar between messages and input, showing current state.
+## Project Folder Structure
 
 ```
-Chat view during agent activity:
-
-┌──────────────────────────────────┐
-│  You: What's on my screen?       │
-│                                  │
-│  ┌────────────────────────────┐  │
-│  │ 🔄 Generating (iter 2)... │  │  ← AgentStatusBar
-│  │            [Cancel]        │  │
-│  └────────────────────────────┘  │
-│                                  │
-│  [input bar]                     │
-└──────────────────────────────────┘
-
-States shown:
-  Idle        → hidden
-  Queued      → "Waiting..."
-  Generating  → "Thinking..." with iteration count
-  ExecutingTools → "Using read_screen..." with tool name
-  Cancelled   → "Cancelled" (brief flash, then hidden)
-  Error       → "Error: ..." with retry button
-```
-
-**Tests**:
-- AgentStatusBar hidden when Idle
-- AgentStatusBar shows "Thinking..." for Generating
-- AgentStatusBar shows tool name for ExecutingTools
-- Cancel button visible when Generating or ExecutingTools
-- Cancel button fires onCancel callback
-- Error state shows message + retry button
-
-**Files**:
-```
-chat/
-├── AgentStatusBar.kt              — NEW
-├── ChatPanel.kt                   — MODIFIED: insert status bar above input
-└── ChatOverlayViewModel.kt        — MODIFIED: expose agentState, fake transitions
-```
-
-**Status**: Not Started
-
----
-
-## Stage 5: TTS Indicator + Speaking State
-
-**Goal**: Visual feedback when the app is speaking. Speaker icon animation
-in the chat tab. Queue indicator when multiple utterances pending.
-
-**What's visible**: Chat tab pulses/animates while speaking. Status text shows
-"Speaking..." or "2 queued".
-
-```
-Chat tab while speaking:
-
-  ┌────┐
-  │ 🔊 │  ← animated speaker icon (replaces chat icon)
-  └────┘
-
-Status bar while speaking:
-  ┌────────────────────────────────┐
-  │ 🔊 Speaking...  (1 queued)     │
-  └────────────────────────────────┘
-```
-
-**Tests**:
-- ChatTab shows speaker animation when TtsState.Speaking
-- ChatTab shows normal icon when TtsState.Silent
-- TTS status shows queue count when > 0
-- Speaking state visible even when panel is collapsed (tab animates)
-
-**Files**:
-```
-chat/
-├── ChatTab.kt                     — MODIFIED: animate when speaking
-├── TtsSpeakingIndicator.kt        — NEW: inline status component
-└── ChatOverlayViewModel.kt        — MODIFIED: expose ttsState, fake speaking
-```
-
-**Status**: Not Started
-
----
-
-## Stage 6: Settings UI
-
-**Goal**: Settings screen accessible from the overlay. Provider selection
-for LLM and TTS. API key entry. Accessibility service toggle.
-
-**What's visible**: Settings panel or bottom sheet with dropdowns and input fields.
-
-```
-┌──────────────────────────────────┐
-│  ⚙️ Settings                     │
-├──────────────────────────────────┤
-│                                  │
-│  LLM Provider                    │
-│  [▼ OpenAI (gpt-4o)           ] │
-│                                  │
-│  API Key                         │
-│  [••••••••••••••••sk-xxx      ] │
-│                                  │
-│  TTS Provider                    │
-│  [▼ Android Built-in           ] │
-│                                  │
-│  ─────────────────────────────   │
-│                                  │
-│  Accessibility Service           │
-│  [  Not enabled  ] [Enable →]   │
-│                                  │
-│  Shell Access                    │
-│  [✓ Enabled]                    │
-│                                  │
-└──────────────────────────────────┘
-```
-
-**Tests**:
-- Provider dropdown shows all options (OpenAI, Anthropic for LLM; Pocket, OpenAI, Android for TTS)
-- API key field masks input
-- Accessibility toggle reflects actual system state
-- Settings persist across panel close/reopen (SharedPreferences)
-- Invalid API key format shows inline error
-
-**Files**:
-```
-chat/
-├── OverlayTabBar.kt               — MODIFIED: add Settings tab/gear icon
-settings/
-├── SettingsPanel.kt               — NEW: settings UI composable
-├── ProviderSelector.kt            — NEW: dropdown for provider selection
-├── ApiKeyField.kt                 — NEW: masked input with validation
-└── SettingsState.kt               — NEW: data class for settings UI state
-```
-
-**Status**: Not Started
-
----
-
-## Stage 7: Provider Interfaces + Fakes
-
-**Goal**: Define `LlmProvider` and `TtsProvider` interfaces with fake implementations.
-These are the testable seams that decouple UI from backends.
-
-**What's testable**: Unit tests — fakes behave predictably, contracts are correct.
-
-**Tests**:
-- FakeLlmProvider returns canned responses in sequence
-- FakeLlmProvider throws when exhausted
-- FakeTtsProvider.speak() records text, spokenTexts list matches
-- FakeTtsProvider.stop() cancels in-progress speak
-- LlmProvider interface contract: generate() returns LlmResponse with correct shape
-- TtsProvider interface contract: speak() suspends, stop() is immediate
-
-**Files**:
-```
-agent/
-├── llm/
-│   ├── LlmProvider.kt
-│   └── FakeLlmProvider.kt
-├── tts/
-│   ├── TtsProvider.kt
-│   └── FakeTtsProvider.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 8: ConversationMemory + ToolRegistry
-
-**Goal**: The two data structures the agent loop needs.
-
-**What's testable**: Pure unit tests, no Android deps.
-
-**Tests**:
-- Memory: append 10, get 10 back
-- Memory: truncation preserves system message, drops oldest
-- Memory: inject() inserts system message at current position
-- Memory: clear() empties but keeps system prompt
-- Registry: register + execute returns result
-- Registry: unknown tool returns error string (no crash)
-- Registry: getDefinitions() returns schemas for all tools
-- EchoTool: returns its input as output
-
-**Files**:
-```
-agent/
-├── memory/
-│   └── ConversationMemory.kt
-├── tool/
-│   ├── Tool.kt
-│   ├── ToolRegistry.kt
-│   └── EchoTool.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 9: AgentLoop + PauseGate
-
-**Goal**: The core agentic loop. Generate → tool calls → execute → loop.
-PauseGate for cooperative suspend/resume at checkpoints.
-
-**What's testable**: Turbine StateFlow tests, all with FakeLlmProvider.
-
-**Tests**:
-- Happy path: text response → states [Idle, Queued, Generating, Idle]
-- Tool loop: toolCall then text → ExecutingTools, tool executed, provider called twice
-- Multi-tool: 2 calls → both executed, both results in memory
-- Max iterations: infinite tools → stops at limit
-- Cancel during generate → Cancelled
-- Cancel during tool exec → Cancelled
-- Pause at gate → suspends, resume → continues from exact point
-- Memory contains correct message sequence after completion
-- PauseGate unit: pause() then check() blocks; resume() unblocks
-
-**Files**:
-```
-agent/
-├── AgentLoop.kt
-├── AgentLoopConfig.kt
-└── PauseGate.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 10: Orchestrator + TaskManager + TtsQueue
-
-**Goal**: The orchestration layer. MainChannel for conversation, TaskManager
-with SCRUD + suspend/resume, TtsQueue with priority, Router for notifications.
-
-**What's testable**: Turbine tests for state, SCRUD operations, priority ordering.
-
-### TaskManager SCRUD + Suspend/Resume
-
-```
-Search    — search(query) fuzzy matches on instructions/status
-Create    — create(instructions, priority, tools) → BackgroundTask
-Read      — get(id), getByStatus(status), getActive(), getHistory()
-Update    — updateInstructions(id, new), reprioritize(id, priority)
-Delete    — cancel(id), remove(id), clearCompleted(), clearAll()
-Suspend   — pause(id), resume(id), pauseAll(), resumeAll()
-```
-
-**Tests**:
-- Main chat: send → response + TTS enqueued
-- spawn_task → task created, runs in background with own AgentLoop
-- Task completes → notification injected into main chat
-- Task completes while main speaking → notification queued (NOTIFICATION priority)
-- SCRUD: search, get, update, cancel, remove, clearCompleted all work
-- pause QUEUED → SUSPENDED, not dispatched
-- pause RUNNING → SUSPENDED at next gate
-- resume → continues from exact point
-- TtsQueue: IMMEDIATE preempts, MAIN before NOTIFICATION
-- TtsQueue: one utterance at a time
-- Concurrency: 3 tasks, maxConcurrent=2 → 2 run, 1 queued
-- Cancel main doesn't cancel background tasks
-
-**Files**:
-```
-agent/
-├── orchestrator/
-│   ├── Orchestrator.kt
-│   ├── MainChannel.kt
-│   ├── Router.kt
-│   └── TtsQueue.kt
-├── task/
-│   ├── TaskManager.kt
-│   ├── BackgroundTaskRunner.kt
-│   └── TaskTools.kt               — SpawnTaskTool, ListTasksTool, etc.
-```
-
-**Status**: Not Started
-
----
-
-## Stage 11: Wire UI to Orchestrator
-
-**Goal**: Replace fake data in the UI with real OrchestratorState.
-Connect ChatOverlayViewModel to Orchestrator. Mock responses → real agent loop.
-
-**What's visible**: Everything from Stages 2–6 now driven by real data.
-Send a message → agent processes → response appears + TTS speaks.
-
-**What's testable**: ViewModel with FakeLlmProvider + FakeTtsProvider.
-
-**Tests**:
-- Send message → response in chat state + TTS called
-- Cancel → AgentLoop + TTS stopped
-- Tool call → ToolCallBubble appears in chat
-- Task spawned → appears in task list
-- Task completes → notification in chat + TTS speaks
-- Speech-in → AgentLoop → TTS out (full pipeline)
-- AgentStatusBar reflects real agent state
-- Task card buttons (pause/cancel/resume) trigger real operations
-
-**Files**:
-```
-chat/
-├── ChatOverlayViewModel.kt        — REWRITTEN: observe OrchestratorState
-├── ChatOverlayManager.kt          — MODIFIED: inject Orchestrator
-
-AppContainer.kt                     — NEW: composition root
-LiveAIApplication.kt                — NEW: Application subclass
-```
-
-**Status**: Not Started
-
----
-
-## Stage 12: OpenAI LlmProvider
-
-**Goal**: Real LLM provider using the OpenAI SDK already in deps.
-
-**What's testable**: MockWebServer — no real API calls.
-
-**Tests**:
-- Request format: messages + tools serialized correctly
-- Text response → LlmResponse(content=..., toolCalls=[])
-- Tool call response → LlmResponse(toolCalls=[...])
-- Streaming: chunks emitted in order
-- HTTP 429/500 → error LlmResponse (no crash)
-- Timeout → error after configured duration
-- Cancellation → HTTP request cancelled
-
-**Files**:
-```
-agent/llm/
-└── OpenAiLlmProvider.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 13: TTS Providers
-
-**Goal**: Swappable TTS — local PocketTTS, cloud OpenAI, Android built-in.
-
-**What's testable**: Each provider behind same interface, MockWebServer for cloud.
-
-**Tests**:
-- PocketTtsProvider calls PocketTtsEngine.generate()
-- OpenAiTtsProvider sends HTTP request (MockWebServer)
-- AndroidTtsProvider calls TextToSpeech.speak()
-- stop() cancels on all providers
-- TtsProviderFactory returns correct impl from config string
-
-**Files**:
-```
-agent/tts/
-├── PocketTtsProvider.kt
-├── OpenAiTtsProvider.kt
-├── AndroidTtsProvider.kt
-└── TtsProviderFactory.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 14: Accessibility Tools
-
-**Goal**: AccessibilityService + screen reading/interaction tools.
-
-**What's testable**: Mock node trees, tool interface tests.
-
-**Tests**:
-- ScreenReader.describeScreen(fakeTree) → natural language
-- TapElementTool finds + clicks node
-- OpenAppTool resolves package name
-- TypeTextTool sets text on focused input
-- ScrollTool scrolls scrollable nodes
-- Tools with no service → clear error message
-- Integration: AgentLoop + ReadScreenTool → full loop
-
-**Files**:
-```
-accessibility/
-├── LiveAIAccessibilityService.kt
-├── ScreenReader.kt
-└── AccessibilityBridge.kt
-
-agent/tool/
-├── ReadScreenTool.kt
-├── TapElementTool.kt
-├── OpenAppTool.kt
-├── TypeTextTool.kt
-├── ScrollTool.kt
-└── ReadNotificationsTool.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 15: Shell + Binary Execution Tools
-
-**Goal**: Shell commands and bundled native binaries as agent tools.
-
-**What's testable**: Pure Kotlin (ShellExecutor, CommandWhitelist). Unit tests.
-
-**Security**: Command whitelist, path sandboxing, timeout, output truncation.
-
-**Tests**:
-- Whitelisted command executes, returns stdout
-- Blacklisted command → "Command not allowed" error
-- Path traversal (../../etc/passwd) → "Path outside sandbox" error
-- Timeout: slow command killed, error returned
-- Output truncation at limit
-- Exit code nonzero → stderr included
-- Bundled binary resolves in nativeLibraryDir
-- Missing binary → "Binary not found" error
-- Integration: AgentLoop calls run_shell → result in memory
-
-**Files**:
-```
-agent/
-├── tool/
-│   ├── ShellTool.kt
-│   └── BinaryTool.kt
-├── shell/
-│   ├── ShellExecutor.kt
-│   ├── CommandWhitelist.kt
-│   └── BinaryRegistry.kt
-```
-
-**Status**: Not Started
-
----
-
-## Stage 16: AppContainer + Settings Wiring
-
-**Goal**: Connect Settings UI (Stage 6) to real provider factories.
-API keys in EncryptedSharedPreferences. Provider hot-swap.
-
-**What's testable**: DI wiring, key storage round-trip.
-
-**Tests**:
-- AppContainer "openai" → OpenAiLlmProvider
-- AppContainer "fake" → FakeLlmProvider
-- TtsProviderFactory returns correct impl
-- API key store → retrieve → matches
-- Provider change re-creates provider without restart
-
-**Files**:
-```
-AppContainer.kt                     — MODIFIED: wire real providers
-settings/
-├── ApiKeyManager.kt               — NEW: EncryptedSharedPreferences
-└── SettingsPanel.kt               — MODIFIED: wire to real config
-```
-
-**Status**: Not Started
-
----
-
-## Dependency Graph
-
-```
-Stage 1:  Data Model                          ← pure Kotlin, no deps
-    │
-    ├──► Stage 2:  Tool Call Bubbles UI       ← needs Message types
-    ├──► Stage 3:  Task List UI               ← needs BackgroundTask types
-    ├──► Stage 4:  Agent Status Bar UI        ← needs AgentLoopState
-    ├──► Stage 5:  TTS Indicator UI           ← needs TtsState
-    └──► Stage 6:  Settings UI                ← needs Config types
-              │
-    (all UI stages can run in parallel after Stage 1)
-              │
-    ┌─────────┘
-    │
-    ├──► Stage 7:  Provider Interfaces        ← pure Kotlin
-    │
-    ├──► Stage 8:  Memory + Registry          ← pure Kotlin
-    │         │
-    │         ▼
-    ├──► Stage 9:  AgentLoop + PauseGate      ← needs 7 + 8
-    │         │
-    │         ▼
-    ├──► Stage 10: Orchestrator + Tasks       ← needs 9
-    │         │
-    │         ▼
-    └──► Stage 11: Wire UI ← Orchestrator     ← needs 2-6 + 10
-              │
-              ├──► Stage 12: OpenAI Provider  ← can parallel
-              ├──► Stage 13: TTS Providers    ← can parallel
-              ├──► Stage 14: Accessibility    ← can parallel
-              └──► Stage 15: Shell Tools      ← can parallel
-                        │
-                        ▼
-                   Stage 16: AppContainer     ← final integration
-```
-
-### Parallelization Opportunities
-
-```
-After Stage 1:   Stages 2, 3, 4, 5, 6 ALL in parallel (UI work)
-After Stage 7:   Stages 8, 9 sequential (dependency chain)
-After Stage 11:  Stages 12, 13, 14, 15 ALL in parallel (providers + tools)
+app/src/main/java/com/example/liveai/
+│
+├── agent/                                  ← CORE AGENT SYSTEM
+│   ├── model/                              ← Stage 1: Data types (13 files)
+│   ├── llm/                                ← Stage 7 + 12: LLM providers
+│   ├── tts/                                ← Stage 7 + 13: TTS providers
+│   ├── context/                            ← Stage 8a + 8b: Context management
+│   │   ├── simple/                         ← In-memory (background tasks)
+│   │   ├── fake/                           ← Tests
+│   │   └── lossless/                       ← DAG + Room (main channel)
+│   │       ├── db/entity/ + dao/           ← Room layer
+│   │       ├── compaction/                 ← DAG construction
+│   │       ├── assembly/                   ← Context window building
+│   │       ├── retrieval/                  ← Search + expand
+│   │       ├── redaction/                  ← Delete with DAG healing
+│   │       └── integrity/                  ← DAG consistency checks
+│   ├── token/                              ← Stage 8a: Token counting
+│   ├── tool/                               ← Stage 8a + 14-16: All tools
+│   ├── prompt/                             ← Stage 9: System prompt management
+│   ├── shell/                              ← Stage 15: Shell execution
+│   ├── camera/                             ← Stage 16: Camera capture
+│   ├── orchestrator/                       ← Stage 10: Orchestration
+│   ├── task/                               ← Stage 10: Task management
+│   ├── network/                            ← Stage 18: Network monitoring
+│   ├── haptic/                             ← Stage 19: Haptic feedback
+│   ├── notification/                       ← Stage 20: Notification system
+│   ├── AgentLoop.kt                        ← Stage 9
+│   ├── AgentLoopConfig.kt
+│   └── PauseGate.kt
+│
+├── accessibility/                          ← Stage 14
+├── chat/                                   ← Stages 2-6, 11 (Overlay UI)
+├── settings/                               ← Stage 6 + 17
+├── AppContainer.kt                         ← Stage 17
+├── LiveAIApplication.kt                    ← Stage 17
+├── AppStateStore.kt                        ← Stage 11 (DataStore)
+├── PermissionsActivity.kt                  ← Stage 21
+├── MainActivity.kt
+└── OverlayService.kt
 ```
 
 ## Test Dependencies
@@ -702,62 +112,17 @@ After Stage 11:  Stages 12, 13, 14, 15 ALL in parallel (providers + tools)
 turbine = "1.2.0"
 coroutines-test = "1.9.0"
 mockwebserver = "4.12.0"
-
-[libraries]
-turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines-test" }
-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
-```
-
-### Test Type Per Stage
-
-```
-Stage 1:  Pure JUnit                          — data classes, enums
-Stage 2:  Compose UI tests (optional)         — @Preview + screenshot
-Stage 3:  Compose UI tests (optional)         — @Preview + screenshot
-Stage 4:  Compose UI tests (optional)         — @Preview + screenshot
-Stage 5:  Compose UI tests (optional)         — @Preview + screenshot
-Stage 6:  Compose UI tests (optional)         — @Preview + screenshot
-Stage 7:  Pure JUnit                          — fakes
-Stage 8:  Pure JUnit                          — memory + registry
-Stage 9:  JUnit + Turbine + coroutines-test   — state machine
-Stage 10: JUnit + Turbine + coroutines-test   — orchestrator + SCRUD
-Stage 11: JUnit + Turbine                     — ViewModel integration
-Stage 12: JUnit + MockWebServer               — HTTP round-trips
-Stage 13: JUnit + MockWebServer + Robolectric — TTS providers
-Stage 14: Instrumented or mock interface      — accessibility
-Stage 15: Pure JUnit                          — shell executor
-Stage 16: JUnit                               — DI wiring
+room = "2.6.1"
+ktoken = "0.4.0"
+datastore = "1.1.1"
+camerax = "1.4.0"
 ```
 
 ## Message Format (OpenAI-Compatible)
 
-All providers translate to/from this internal format:
-
 ```
-┌─────────────────────────────────────────────────────┐
-│ Message.System(content="You are a helpful...")      │
-├─────────────────────────────────────────────────────┤
-│ Message.User(content="Read my texts")               │
-├─────────────────────────────────────────────────────┤
-│ Message.Assistant(                                  │
-│   content=null,                                     │
-│   toolCalls=[                                       │
-│     ToolCallRequest(                                │
-│       id="call_abc",                                │
-│       functionName="read_screen",                   │
-│       argumentsJson="{}"                            │
-│     )                                               │
-│   ]                                                 │
-│ )                                                   │
-├─────────────────────────────────────────────────────┤
-│ Message.ToolResult(                                 │
-│   toolCallId="call_abc",                            │
-│   content="WhatsApp - Chat: Mom (2 new)..."         │
-│ )                                                   │
-├─────────────────────────────────────────────────────┤
-│ Message.Assistant(                                  │
-│   content="You have 2 new texts from Mom..."        │
-│ )                                                   │
-└─────────────────────────────────────────────────────┘
+Message.System   → system prompt (built by SystemPromptBuilder)
+Message.User     → user input (voice or keyboard, optional imageUri)
+Message.Assistant → LLM response (content and/or toolCalls)
+Message.ToolResult → tool execution result (toolCallId back-reference)
 ```
