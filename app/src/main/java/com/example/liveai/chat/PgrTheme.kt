@@ -31,30 +31,39 @@ import androidx.compose.animation.core.tween
  * Cold. Angular. Precise. Glowing. Military.
  */
 object Pgr {
-    // Backgrounds
+    // ── Backgrounds ──
     val Black = Color(0xFF0A0A0F)
-    val DarkPanel = Color(0xFF12121A)
-    val Panel = Color(0xFF1A1A2E)
-    val PanelLight = Color(0xFF2A2D3E)
-    val Surface = Color(0xFF3B3F54)
+    val DarkPanel = Color(0xFF0F1018)
+    val Panel = Color(0xFF161822)
+    val PanelLight = Color(0xFF1E2130)
+    val Surface = Color(0xFF282C3E)
 
-    // Accents
+    // ── Status accents ──
     val Cyan = Color(0xFF00D4FF)
-    val CyanDim = Color(0xFF00D4FF).copy(alpha = 0.3f)
-    val CyanGlow = Color(0xFF00D4FF).copy(alpha = 0.12f)
-    val Amber = Color(0xFFFF8C00)
-    val AmberDim = Color(0xFFFF8C00).copy(alpha = 0.3f)
-    val Red = Color(0xFFFF1744)
-    val RedDim = Color(0xFFFF1744).copy(alpha = 0.3f)
-    val Green = Color(0xFF00E676)
-    val GreenDim = Color(0xFF00E676).copy(alpha = 0.3f)
+    val Amber = Color(0xFFFFA726)
+    val Red = Color(0xFFFF5252)
+    val Green = Color(0xFF69F0AE)
     val Purple = Color(0xFF7C4DFF)
+    val Muted = Color(0xFF546E7A)
 
-    // Text
-    val TextPrimary = Color(0xFFF0F0F0)
-    val TextSecondary = Color(0xFF8E8E9A)
-    val TextTertiary = Color(0xFF4A4A5A)
-    val TextCyan = Color(0xFF00D4FF)
+    // ── Status card backgrounds (subtle tinted panels) ──
+    val BgRunning = Color(0xFF0D1820)       // cyan-tinted dark
+    val BgQueued = Color(0xFF111318)         // neutral dark
+    val BgSuspended = Color(0xFF1A1508)     // warm amber-tinted dark
+    val BgCompleted = Color(0xFF0A1A10)     // green-tinted dark
+    val BgFailed = Color(0xFF1A0C0C)        // red-tinted dark
+    val BgCancelled = Color(0xFF101214)     // cold grey dark
+
+    // ── Tool call backgrounds ──
+    val BgToolActive = Color(0xFF0C1520)    // cyan-tinted for running tool
+    val BgToolDone = Color(0xFF0C1810)      // green-tinted for completed tool
+    val BgToolError = Color(0xFF180C0C)     // red-tinted for errored tool
+
+    // ── Text ──
+    val TextPrimary = Color(0xFFE8EAF0)
+    val TextSecondary = Color(0xFF7E8494)
+    val TextTertiary = Color(0xFF454B5C)
+    val TextCyan = Cyan
 }
 
 /**

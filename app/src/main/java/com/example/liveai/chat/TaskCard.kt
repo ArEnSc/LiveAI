@@ -53,27 +53,35 @@ fun TaskCard(
     modifier: Modifier = Modifier
 ) {
     val statusColor = when (task.status) {
-        TaskStatus.QUEUED -> Pgr.TextSecondary
+        TaskStatus.QUEUED -> Pgr.Muted
         TaskStatus.RUNNING -> Pgr.Cyan
         TaskStatus.SUSPENDED -> Pgr.Amber
         TaskStatus.COMPLETED -> Pgr.Green
         TaskStatus.FAILED -> Pgr.Red
-        TaskStatus.CANCELLED -> Pgr.TextTertiary
+        TaskStatus.CANCELLED -> Pgr.Muted
     }
-    val cutDp = 10.dp
+    val bgColor = when (task.status) {
+        TaskStatus.QUEUED -> Pgr.BgQueued
+        TaskStatus.RUNNING -> Pgr.BgRunning
+        TaskStatus.SUSPENDED -> Pgr.BgSuspended
+        TaskStatus.COMPLETED -> Pgr.BgCompleted
+        TaskStatus.FAILED -> Pgr.BgFailed
+        TaskStatus.CANCELLED -> Pgr.BgCancelled
+    }
+    val cutDp = 8.dp
     val shape = ChamferedShape(cutDp)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Pgr.DarkPanel)
+            .background(bgColor)
             .drawBehind {
-                drawChamferedBorder(statusColor.copy(alpha = 0.35f), cutDp.toPx(), 1f)
-                drawCornerBrackets(statusColor.copy(alpha = 0.25f), armLength = 8f, strokeWidth = 1f, inset = 2f)
+                drawChamferedBorder(statusColor.copy(alpha = 0.25f), cutDp.toPx(), 0.8f)
+                drawCornerBrackets(statusColor.copy(alpha = 0.15f), armLength = 7f, strokeWidth = 0.8f, inset = 2f)
             }
-            .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine(Pgr.Cyan.copy(alpha = 0.06f)) else Modifier)
-            .padding(12.dp)
+            .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine(Pgr.Cyan.copy(alpha = 0.05f)) else Modifier)
+            .padding(10.dp)
     ) {
         // Header row
         Row(
@@ -230,7 +238,7 @@ private fun TaskStatusDiamond(status: TaskStatus, color: Color) {
 
     Box(
         modifier = Modifier
-            .size(12.dp)
+            .size(10.dp)
             .graphicsLayer {
                 rotationZ = 45f
                 this.alpha = alpha

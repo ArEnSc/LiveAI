@@ -60,27 +60,32 @@ fun ToolCallBubble(
         is ToolCallStatus.Complete -> Pgr.Green
         is ToolCallStatus.Error -> Pgr.Red
     }
-    val cutDp = 8.dp
+    val bgColor = when (display.status) {
+        is ToolCallStatus.InProgress -> Pgr.BgToolActive
+        is ToolCallStatus.Complete -> Pgr.BgToolDone
+        is ToolCallStatus.Error -> Pgr.BgToolError
+    }
+    val cutDp = 6.dp
     val shape = ChamferedShape(cutDp)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Pgr.DarkPanel)
+            .background(bgColor)
             .drawBehind {
-                drawChamferedBorder(accentColor.copy(alpha = 0.4f), cutDp.toPx(), 1f)
+                drawChamferedBorder(accentColor.copy(alpha = 0.3f), cutDp.toPx(), 0.8f)
             }
             .then(if (display.status is ToolCallStatus.InProgress) Modifier.scanLine() else Modifier)
-            .padding(10.dp)
+            .padding(8.dp)
     ) {
         Row(verticalAlignment = Alignment.Top) {
             // Status icon
             Box(
                 modifier = Modifier
-                    .size(22.dp)
+                    .size(18.dp)
                     .drawBehind {
-                        drawCornerBrackets(accentColor.copy(alpha = 0.5f), armLength = 5f, strokeWidth = 1f)
+                        drawCornerBrackets(accentColor.copy(alpha = 0.4f), armLength = 4f, strokeWidth = 0.8f)
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -101,20 +106,20 @@ fun ToolCallBubble(
                             contentDescription = "Running",
                             tint = Pgr.Cyan,
                             modifier = Modifier
-                                .size(12.dp)
+                                .size(10.dp)
                                 .graphicsLayer { rotationZ = rotation }
                         )
                     }
                     is ToolCallStatus.Complete -> {
-                        Icon(Icons.Rounded.Check, "Complete", tint = Pgr.Green, modifier = Modifier.size(13.dp))
+                        Icon(Icons.Rounded.Check, "Complete", tint = Pgr.Green, modifier = Modifier.size(11.dp))
                     }
                     is ToolCallStatus.Error -> {
-                        Icon(Icons.Rounded.Close, "Error", tint = Pgr.Red, modifier = Modifier.size(13.dp))
+                        Icon(Icons.Rounded.Close, "Error", tint = Pgr.Red, modifier = Modifier.size(11.dp))
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 // Tool name + duration
