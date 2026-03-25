@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,20 +20,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,57 +47,81 @@ import com.example.liveai.chat.ChatTab
 import com.example.liveai.chat.MessageBubble
 
 /**
- * Debug-only activity for browsing all UI components with every state variant.
- * Like Storybook — tap a section to expand, see each component rendered.
+ * Debug activity for browsing all UI components with every state variant.
+ * Accessible from the Developer section in MainActivity.
  */
 class CatalogActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                ComponentCatalog()
-            }
+            ComponentCatalog()
         }
     }
 }
+
+private val DarkBg = Color(0xFF1A1A2E)
+private val CardBg = Color(0xFF16213E)
+private val SectionAccent = Color(0xFF7B61FF)
+private val TextPrimary = Color(0xFFE8E8E8)
+private val TextSecondary = Color(0xFF8B8FA3)
+private val PlaceholderBg = Color(0xFF1E2A45)
+private val PlaceholderBorder = Color(0xFF2A3A5C)
 
 @Composable
 fun ComponentCatalog() {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF5F5F5))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .background(DarkBg)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+
+        // Header
         item {
-            Text(
-                text = "Component Catalog",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                Text(
+                    text = "Component Catalog",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Browse every UI component in all states",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            }
         }
 
-        // --- Existing components ---
+        // --- Existing: Chat Tab ---
 
         item {
-            CatalogSection("Chat Tab") {
-                CatalogItem("Default") {
-                    Box(modifier = Modifier.size(76.dp)) {
-                        ChatTab(isExpanded = false)
+            CatalogSection(title = "Chat Tab", count = 2) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    CatalogVariant("Default") {
+                        Box(modifier = Modifier.size(64.dp)) {
+                            ChatTab(isExpanded = false)
+                        }
                     }
-                }
-                CatalogItem("Expanded") {
-                    Box(modifier = Modifier.size(76.dp)) {
-                        ChatTab(isExpanded = true)
+                    CatalogVariant("Expanded") {
+                        Box(modifier = Modifier.size(64.dp)) {
+                            ChatTab(isExpanded = true)
+                        }
                     }
                 }
             }
         }
 
+        // --- Existing: Message Bubbles ---
+
         item {
-            CatalogSection("Message Bubbles") {
+            CatalogSection(title = "Message Bubbles", count = 5) {
                 CatalogItem("User message") {
                     MessageBubble(
                         message = ChatMessage(
@@ -109,24 +138,24 @@ fun ComponentCatalog() {
                         )
                     )
                 }
-                CatalogItem("Assistant streaming") {
+                CatalogItem("Streaming") {
                     MessageBubble(
                         message = ChatMessage(
-                            text = "You're in WhatsApp. You have 2 new",
+                            text = "You're in WhatsApp. You have",
                             isUser = false,
                             isStreaming = true
                         )
                     )
                 }
-                CatalogItem("Short user message") {
+                CatalogItem("Short") {
                     MessageBubble(
                         message = ChatMessage(text = "Hi", isUser = true)
                     )
                 }
-                CatalogItem("Long assistant message") {
+                CatalogItem("Long response") {
                     MessageBubble(
                         message = ChatMessage(
-                            text = "Your PDF summary is ready. The document is a lease renewal agreement for the apartment at 123 Oak Street. The monthly rent is \$2,400, which is a \$200 increase from the previous lease. The term runs from April 1st through March 31st of next year. There's a 60-day notice requirement for non-renewal.",
+                            text = "Your PDF summary is ready. The document is a lease renewal for 123 Oak Street. Monthly rent is \$2,400, a \$200 increase. Term runs April 1 through March 31. 60-day notice required for non-renewal.",
                             isUser = false
                         )
                     )
@@ -134,69 +163,68 @@ fun ComponentCatalog() {
             }
         }
 
-        // --- Stage 2: Tool Call Bubbles (placeholder) ---
+        // --- Stage 2: Tool Call Bubbles ---
 
         item {
-            CatalogSection("Tool Call Bubbles (Stage 2)") {
-                CatalogPlaceholder("In-progress — reading screen")
-                CatalogPlaceholder("Complete — with result preview")
-                CatalogPlaceholder("Error — service not enabled")
+            CatalogSection(title = "Tool Call Bubbles", count = 3, stage = 2) {
+                CatalogPlaceholder("In-progress", "read_screen running...")
+                CatalogPlaceholder("Complete", "read_screen done in 0.8s with result preview")
+                CatalogPlaceholder("Error", "Service not enabled")
             }
         }
 
-        // --- Stage 3: Task Cards (placeholder) ---
+        // --- Stage 3: Task Cards ---
 
         item {
-            CatalogSection("Task Cards (Stage 3)") {
-                CatalogPlaceholder("QUEUED — waiting in line")
-                CatalogPlaceholder("RUNNING — 60% progress bar")
-                CatalogPlaceholder("SUSPENDED — paused mid-work")
-                CatalogPlaceholder("COMPLETED — with result summary")
-                CatalogPlaceholder("FAILED — with error message")
-                CatalogPlaceholder("CANCELLED")
+            CatalogSection(title = "Task Cards", count = 6, stage = 3) {
+                CatalogPlaceholder("Queued", "Waiting for a slot to open")
+                CatalogPlaceholder("Running 60%", "Summarizing... page 7 of 12")
+                CatalogPlaceholder("Suspended", "Paused mid-execution")
+                CatalogPlaceholder("Completed", "Result: dinner at 6, need a ride?")
+                CatalogPlaceholder("Failed", "Network timeout after 3 retries")
+                CatalogPlaceholder("Cancelled", "Cancelled by user")
             }
         }
 
-        // --- Stage 3: Tab Bar (placeholder) ---
+        // --- Stage 3: Tab Bar ---
 
         item {
-            CatalogSection("Overlay Tab Bar (Stage 3)") {
-                CatalogPlaceholder("Chat tab selected")
-                CatalogPlaceholder("Tasks tab selected (with badge count)")
-                CatalogPlaceholder("Settings tab selected")
+            CatalogSection(title = "Overlay Tab Bar", count = 3, stage = 3) {
+                CatalogPlaceholder("Chat selected", "Active tab highlighted")
+                CatalogPlaceholder("Tasks selected", "Badge showing count: 2")
+                CatalogPlaceholder("Settings selected", "Gear icon")
             }
         }
 
-        // --- Stage 4: Agent Status Bar (placeholder) ---
+        // --- Stage 4: Agent Status Bar ---
 
         item {
-            CatalogSection("Agent Status Bar (Stage 4)") {
-                CatalogPlaceholder("Idle — hidden")
-                CatalogPlaceholder("Queued — Waiting...")
-                CatalogPlaceholder("Generating — Thinking... (iter 2)")
-                CatalogPlaceholder("Executing tools — Using read_screen...")
-                CatalogPlaceholder("Cancelled — brief flash")
-                CatalogPlaceholder("Error — with retry button")
+            CatalogSection(title = "Agent Status Bar", count = 5, stage = 4) {
+                CatalogPlaceholder("Queued", "Waiting...")
+                CatalogPlaceholder("Generating", "Thinking... iteration 2 [Cancel]")
+                CatalogPlaceholder("Executing", "Using read_screen... [Cancel]")
+                CatalogPlaceholder("Cancelled", "Brief flash then hidden")
+                CatalogPlaceholder("Error", "Rate limited — [Retry]")
             }
         }
 
-        // --- Stage 5: TTS Indicator (placeholder) ---
+        // --- Stage 5: TTS Indicator ---
 
         item {
-            CatalogSection("TTS Indicator (Stage 5)") {
-                CatalogPlaceholder("Silent")
-                CatalogPlaceholder("Speaking (0 queued)")
-                CatalogPlaceholder("Speaking (3 queued)")
+            CatalogSection(title = "TTS Indicator", count = 3, stage = 5) {
+                CatalogPlaceholder("Silent", "No indicator shown")
+                CatalogPlaceholder("Speaking", "Speaker animation, 0 queued")
+                CatalogPlaceholder("Speaking + queue", "Speaker animation, 3 queued")
             }
         }
 
-        // --- Stage 6: Settings Panel (placeholder) ---
+        // --- Stage 6: Settings ---
 
         item {
-            CatalogSection("Settings Panel (Stage 6)") {
-                CatalogPlaceholder("Provider selector dropdown")
-                CatalogPlaceholder("API key field (masked)")
-                CatalogPlaceholder("Accessibility toggle")
+            CatalogSection(title = "Settings Panel", count = 3, stage = 6) {
+                CatalogPlaceholder("Provider selector", "Dropdown: OpenAI / Anthropic")
+                CatalogPlaceholder("API key field", "Masked input with validation")
+                CatalogPlaceholder("Accessibility toggle", "Not enabled [Enable]")
             }
         }
 
@@ -205,19 +233,21 @@ fun ComponentCatalog() {
 }
 
 @Composable
-fun CatalogSection(
+private fun CatalogSection(
     title: String,
+    count: Int,
+    stage: Int? = null,
     content: @Composable () -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color.White,
-        shadowElevation = 2.dp
+        shape = RoundedCornerShape(16.dp),
+        color = CardBg
     ) {
         Column {
+            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -225,28 +255,51 @@ fun CatalogSection(
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (expanded) "v" else ">",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ChatColors.Purple,
-                    modifier = Modifier.width(20.dp)
+                // Accent dot
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (stage == null) SectionAccent else SectionAccent.copy(alpha = 0.4f))
                 )
-                Text(
-                    text = title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = if (stage != null) "Stage $stage — $count variants" else "$count variants",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                }
+
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            AnimatedVisibility(visible = expanded) {
+            // Content
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
                 Column(
                     modifier = Modifier.padding(
                         start = 16.dp,
                         end = 16.dp,
                         bottom = 16.dp
                     ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     content()
                 }
@@ -256,43 +309,68 @@ fun CatalogSection(
 }
 
 @Composable
-fun CatalogItem(
+private fun CatalogItem(
     label: String,
     content: @Composable () -> Unit
 ) {
     Column {
         Text(
             text = label,
-            fontSize = 12.sp,
-            color = ChatColors.OnSurfaceDim,
-            modifier = Modifier.padding(bottom = 4.dp)
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = SectionAccent,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.padding(bottom = 6.dp)
         )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFF9F9F9))
-                .padding(8.dp)
-        ) {
-            content()
-        }
+        content()
     }
 }
 
 @Composable
-fun CatalogPlaceholder(label: String) {
+private fun CatalogVariant(
+    label: String,
+    content: @Composable () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        content()
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = TextSecondary
+        )
+    }
+}
+
+@Composable
+private fun CatalogPlaceholder(
+    title: String,
+    description: String
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(ChatColors.SurfaceDim)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(PlaceholderBg, PlaceholderBg.copy(alpha = 0.7f))
+                )
+            )
             .padding(12.dp)
     ) {
-        Text(
-            text = label,
-            fontSize = 13.sp,
-            color = ChatColors.OnSurfaceDim,
-            fontWeight = FontWeight.Medium
-        )
+        Column {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = TextPrimary.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                fontSize = 11.sp,
+                color = TextSecondary.copy(alpha = 0.5f)
+            )
+        }
     }
 }
