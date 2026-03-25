@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -45,15 +46,19 @@ import com.example.liveai.agent.model.BackgroundTask
 import com.example.liveai.agent.model.TaskProgress
 import com.example.liveai.agent.model.TaskResult
 import com.example.liveai.agent.model.TaskStatus
+import com.example.liveai.chat.ChamferedShape
 import com.example.liveai.chat.ChatColors
 import com.example.liveai.chat.ChatMessage
 import com.example.liveai.chat.ChatTab
 import com.example.liveai.chat.MessageBubble
+import com.example.liveai.chat.Pgr
 import com.example.liveai.chat.TaskCard
 import com.example.liveai.chat.ToolCallBubble
 import com.example.liveai.chat.ToolCallDisplay
 import com.example.liveai.chat.ToolCallStatus
 import com.example.liveai.chat.ToolCallSteps
+import com.example.liveai.chat.drawChamferedBorder
+import com.example.liveai.chat.drawCornerBrackets
 
 /**
  * Debug activity for browsing all UI components with every state variant.
@@ -68,12 +73,12 @@ class CatalogActivity : ComponentActivity() {
     }
 }
 
-private val DarkBg = Color(0xFF1A1A2E)
-private val CardBg = Color(0xFF16213E)
-private val SectionAccent = Color(0xFF7B61FF)
-private val TextPrimary = Color(0xFFE8E8E8)
-private val TextSecondary = Color(0xFF8B8FA3)
-private val PlaceholderBg = Color(0xFF1E2A45)
+private val DarkBg = Color(0xFF0A0A0F)
+private val CardBg = Color(0xFF12121A)
+private val SectionAccent = Color(0xFF00D4FF)
+private val TextPrimary = Color(0xFFF0F0F0)
+private val TextSecondary = Color(0xFF8E8E9A)
+private val PlaceholderBg = Color(0xFF1A1A2E)
 private val PlaceholderBorder = Color(0xFF2A3A5C)
 
 @Composable
@@ -347,10 +352,16 @@ private fun CatalogSection(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = CardBg
+    val shape = ChamferedShape(12.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(CardBg)
+            .drawBehind {
+                drawChamferedBorder(SectionAccent.copy(alpha = 0.15f), 12.dp.toPx(), 1f)
+                drawCornerBrackets(SectionAccent.copy(alpha = 0.12f), armLength = 10f, strokeWidth = 0.8f, inset = 3f)
+            }
     ) {
         Column {
             // Header

@@ -17,28 +17,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cancel
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.HourglassBottom
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,16 +42,6 @@ import androidx.compose.ui.unit.sp
 import com.example.liveai.agent.model.BackgroundTask
 import com.example.liveai.agent.model.TaskResult
 import com.example.liveai.agent.model.TaskStatus
-
-private val TaskCardBg = Color(0xFF2A2A3E)
-private val TaskText = Color(0xFFB8B8D0)
-private val TaskTextDim = Color(0xFF6B6B8A)
-private val QueuedColor = Color(0xFF90A4AE)
-private val RunningColor = Color(0xFF7B61FF)
-private val SuspendedColor = Color(0xFFFFA726)
-private val CompletedColor = Color(0xFF4CAF50)
-private val FailedColor = Color(0xFFEF5350)
-private val CancelledColor = Color(0xFF78909C)
 
 @Composable
 fun TaskCard(
@@ -67,56 +53,69 @@ fun TaskCard(
     modifier: Modifier = Modifier
 ) {
     val statusColor = when (task.status) {
-        TaskStatus.QUEUED -> QueuedColor
-        TaskStatus.RUNNING -> RunningColor
-        TaskStatus.SUSPENDED -> SuspendedColor
-        TaskStatus.COMPLETED -> CompletedColor
-        TaskStatus.FAILED -> FailedColor
-        TaskStatus.CANCELLED -> CancelledColor
+        TaskStatus.QUEUED -> Pgr.TextSecondary
+        TaskStatus.RUNNING -> Pgr.Cyan
+        TaskStatus.SUSPENDED -> Pgr.Amber
+        TaskStatus.COMPLETED -> Pgr.Green
+        TaskStatus.FAILED -> Pgr.Red
+        TaskStatus.CANCELLED -> Pgr.TextTertiary
     }
+    val cutDp = 10.dp
+    val shape = ChamferedShape(cutDp)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(TaskCardBg)
+            .clip(shape)
+            .background(Pgr.DarkPanel)
+            .drawBehind {
+                drawChamferedBorder(statusColor.copy(alpha = 0.35f), cutDp.toPx(), 1f)
+                drawCornerBrackets(statusColor.copy(alpha = 0.25f), armLength = 8f, strokeWidth = 1f, inset = 2f)
+            }
+            .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine(Pgr.Cyan.copy(alpha = 0.06f)) else Modifier)
             .padding(12.dp)
     ) {
-        // Header: status icon + instructions + actions
+        // Header row
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Status icon
-            TaskStatusIcon(status = task.status, color = statusColor)
+            // Status indicator — diamond shape
+            TaskStatusDiamond(status = task.status, color = statusColor)
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            // Task name + status label
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = task.instructions,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Pgr.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = task.status.name.lowercase().replaceFirstChar { it.uppercase() },
-                    fontSize = 11.sp,
-                    color = statusColor
-                )
+                Row {
+                    Text(
+                        text = task.status.name,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor,
+                        letterSpacing = 1.sp
+                    )
+                    if (task.status == TaskStatus.RUNNING && task.progress.percent != null) {
+                        Text(
+                            text = " / ${(task.progress.percent * 100).toInt()}%",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = statusColor.copy(alpha = 0.7f)
+                        )
+                    }
+                }
             }
 
-            // Action buttons
-            TaskActions(
-                status = task.status,
-                onPause = onPause,
-                onResume = onResume,
-                onCancel = onCancel,
-                onClear = onClear
-            )
+            // Actions
+            TaskActions(task.status, onPause, onResume, onCancel, onClear, statusColor)
         }
 
         // Progress bar for RUNNING
@@ -124,106 +123,85 @@ fun TaskCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             if (task.progress.percent != null) {
-                // Determinate
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                PgrProgressBar(
+                    progress = task.progress.percent,
+                    color = Pgr.Cyan,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    LinearProgressIndicator(
-                        progress = { task.progress.percent },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
-                        color = RunningColor,
-                        trackColor = RunningColor.copy(alpha = 0.15f)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "${(task.progress.percent * 100).toInt()}%",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = RunningColor
-                    )
-                }
+                )
             } else {
-                // Indeterminate
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = RunningColor,
-                    trackColor = RunningColor.copy(alpha = 0.15f)
+                PgrIndeterminateBar(
+                    color = Pgr.Cyan,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            // Phase + detail
             if (task.progress.phase.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Row {
-                    Text(
-                        text = task.progress.phase,
-                        fontSize = 11.sp,
-                        color = TaskTextDim
-                    )
-                    if (task.progress.detail != null) {
-                        Text(
-                            text = " — ${task.progress.detail}",
-                            fontSize = 11.sp,
-                            color = TaskTextDim.copy(alpha = 0.6f)
-                        )
-                    }
-                }
+                Text(
+                    text = buildString {
+                        append(task.progress.phase.uppercase())
+                        if (task.progress.detail != null) {
+                            append(" // ")
+                            append(task.progress.detail)
+                        }
+                    },
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Pgr.TextTertiary,
+                    letterSpacing = 0.5.sp
+                )
             }
         }
 
-        // Suspended indicator
+        // Suspended
         if (task.status == TaskStatus.SUSPENDED) {
             Spacer(modifier = Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(SuspendedColor)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Paused — tap resume to continue",
-                    fontSize = 11.sp,
-                    color = SuspendedColor.copy(alpha = 0.7f)
-                )
-            }
+            Text(
+                text = ">> PAUSED — AWAITING RESUME",
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Pgr.Amber.copy(alpha = 0.6f),
+                letterSpacing = 0.5.sp
+            )
         }
 
-        // Result preview for COMPLETED
+        // Completed result
         if (task.status == TaskStatus.COMPLETED && task.result is TaskResult.Success) {
+            val success = task.result as TaskResult.Success
             Spacer(modifier = Modifier.height(8.dp))
+            // Thin separator
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .background(Pgr.Green.copy(alpha = 0.2f))
+            )
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = (task.result as TaskResult.Success).summary,
+                text = success.summary,
                 fontSize = 11.sp,
-                color = TaskText.copy(alpha = 0.7f),
+                color = Pgr.TextSecondary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 15.sp
             )
-            val duration = (task.result as TaskResult.Success).durationMs
             Text(
-                text = "Completed in ${"%.1f".format(duration / 1000.0)}s",
-                fontSize = 10.sp,
-                color = TaskTextDim.copy(alpha = 0.5f),
+                text = "${"%.1f".format(success.durationMs / 1000.0)}s",
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Pgr.TextTertiary,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
 
-        // Error for FAILED
+        // Failed error
         if (task.status == TaskStatus.FAILED && task.result is TaskResult.Failure) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = (task.result as TaskResult.Failure).error,
-                fontSize = 11.sp,
-                color = FailedColor.copy(alpha = 0.8f),
+                text = "ERR: ${(task.result as TaskResult.Failure).error}",
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Pgr.Red.copy(alpha = 0.8f),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -232,50 +210,99 @@ fun TaskCard(
 }
 
 @Composable
-private fun TaskStatusIcon(status: TaskStatus, color: Color) {
-    val icon: ImageVector
-    val spinning: Boolean
-
-    when (status) {
-        TaskStatus.QUEUED -> { icon = Icons.Rounded.HourglassBottom; spinning = false }
-        TaskStatus.RUNNING -> { icon = Icons.Rounded.Refresh; spinning = true }
-        TaskStatus.SUSPENDED -> { icon = Icons.Rounded.Pause; spinning = false }
-        TaskStatus.COMPLETED -> { icon = Icons.Rounded.Check; spinning = false }
-        TaskStatus.FAILED -> { icon = Icons.Rounded.Close; spinning = false }
-        TaskStatus.CANCELLED -> { icon = Icons.Rounded.Cancel; spinning = false }
-    }
-
-    val rotation = if (spinning) {
-        val transition = rememberInfiniteTransition(label = "taskSpin")
-        val r by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
+private fun TaskStatusDiamond(status: TaskStatus, color: Color) {
+    val pulsing = status == TaskStatus.RUNNING
+    val alpha = if (pulsing) {
+        val transition = rememberInfiniteTransition(label = "pulse")
+        val a by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(1200, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
+                animation = tween(800),
+                repeatMode = RepeatMode.Reverse
             ),
-            label = "taskSpinAnim"
+            label = "pulseAlpha"
         )
-        r
+        a
     } else {
-        0f
+        1f
     }
 
     Box(
         modifier = Modifier
-            .size(28.dp)
-            .clip(CircleShape)
-            .background(color.copy(alpha = 0.12f)),
-        contentAlignment = Alignment.Center
+            .size(12.dp)
+            .graphicsLayer {
+                rotationZ = 45f
+                this.alpha = alpha
+            }
+            .background(color)
+    )
+}
+
+/**
+ * PGR-style segmented progress bar — angular, discrete blocks.
+ */
+@Composable
+private fun PgrProgressBar(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+    segments: Int = 20
+) {
+    val filledCount = (progress * segments).toInt()
+
+    Row(
+        modifier = modifier.height(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = status.name,
-            tint = color,
-            modifier = Modifier
-                .size(16.dp)
-                .graphicsLayer { rotationZ = rotation }
-        )
+        for (i in 0 until segments) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(4.dp)
+                    .background(
+                        if (i < filledCount) color
+                        else color.copy(alpha = 0.08f)
+                    )
+            )
+        }
+    }
+}
+
+/**
+ * PGR-style indeterminate bar — sweeping segments.
+ */
+@Composable
+private fun PgrIndeterminateBar(
+    color: Color,
+    modifier: Modifier = Modifier,
+    segments: Int = 20
+) {
+    val transition = rememberInfiniteTransition(label = "indet")
+    val sweep by transition.animateFloat(
+        initialValue = -4f,
+        targetValue = segments.toFloat() + 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "indetSweep"
+    )
+
+    Row(
+        modifier = modifier.height(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+    ) {
+        for (i in 0 until segments) {
+            val distance = kotlin.math.abs(i - sweep)
+            val alpha = (1f - (distance / 4f)).coerceIn(0f, 1f) * 0.8f
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(4.dp)
+                    .background(color.copy(alpha = alpha.coerceAtLeast(0.08f)))
+            )
+        }
     }
 }
 
@@ -285,56 +312,32 @@ private fun TaskActions(
     onPause: (() -> Unit)?,
     onResume: (() -> Unit)?,
     onCancel: (() -> Unit)?,
-    onClear: (() -> Unit)?
+    onClear: (() -> Unit)?,
+    color: Color
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+    Row {
         when (status) {
             TaskStatus.RUNNING -> {
-                if (onPause != null) {
-                    SmallActionButton(Icons.Rounded.Pause, "Pause", SuspendedColor, onPause)
-                }
-                if (onCancel != null) {
-                    SmallActionButton(Icons.Rounded.Close, "Cancel", FailedColor, onCancel)
-                }
+                if (onPause != null) ActionBtn(Icons.Rounded.Pause, "Pause", Pgr.Amber, onPause)
+                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", Pgr.Red, onCancel)
             }
             TaskStatus.SUSPENDED -> {
-                if (onResume != null) {
-                    SmallActionButton(Icons.Rounded.PlayArrow, "Resume", RunningColor, onResume)
-                }
-                if (onCancel != null) {
-                    SmallActionButton(Icons.Rounded.Close, "Cancel", FailedColor, onCancel)
-                }
+                if (onResume != null) ActionBtn(Icons.Rounded.PlayArrow, "Resume", Pgr.Cyan, onResume)
+                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", Pgr.Red, onCancel)
             }
             TaskStatus.QUEUED -> {
-                if (onCancel != null) {
-                    SmallActionButton(Icons.Rounded.Close, "Cancel", FailedColor, onCancel)
-                }
+                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", Pgr.Red, onCancel)
             }
-            TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED -> {
-                if (onClear != null) {
-                    SmallActionButton(Icons.Rounded.Close, "Clear", CancelledColor, onClear)
-                }
+            else -> {
+                if (onClear != null) ActionBtn(Icons.Rounded.Cancel, "Clear", Pgr.TextTertiary, onClear)
             }
         }
     }
 }
 
 @Composable
-private fun SmallActionButton(
-    icon: ImageVector,
-    label: String,
-    tint: Color,
-    onClick: () -> Unit
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(32.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = tint.copy(alpha = 0.7f),
-            modifier = Modifier.size(16.dp)
-        )
+private fun ActionBtn(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(28.dp)) {
+        Icon(icon, label, tint = tint.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
     }
 }

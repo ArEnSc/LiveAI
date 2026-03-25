@@ -17,20 +17,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
@@ -39,200 +38,193 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Status of a tool call within the agent loop.
- */
 sealed interface ToolCallStatus {
     data object InProgress : ToolCallStatus
     data class Complete(val durationMs: Long) : ToolCallStatus
     data class Error(val message: String) : ToolCallStatus
 }
 
-/**
- * Display data for a tool call bubble in the chat.
- */
 data class ToolCallDisplay(
     val toolName: String,
     val status: ToolCallStatus,
     val resultPreview: String? = null
 )
 
-private val ToolBg = Color(0xFF2A2A3E)
-private val ToolBorder = Color(0xFF3A3A5E)
-private val ToolText = Color(0xFFB8B8D0)
-private val SuccessGreen = Color(0xFF4CAF50)
-private val ErrorRed = Color(0xFFEF5350)
-private val InProgressBlue = Color(0xFF7B61FF)
-
-/**
- * Chat bubble showing a tool call — spinner while running, checkmark when done,
- * X on error. Shows tool name, duration, and result preview.
- */
 @Composable
 fun ToolCallBubble(
     display: ToolCallDisplay,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    val accentColor = when (display.status) {
+        is ToolCallStatus.InProgress -> Pgr.Cyan
+        is ToolCallStatus.Complete -> Pgr.Green
+        is ToolCallStatus.Error -> Pgr.Red
+    }
+    val cutDp = 8.dp
+    val shape = ChamferedShape(cutDp)
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(ToolBg)
-            .padding(10.dp),
-        verticalAlignment = Alignment.Top
+            .clip(shape)
+            .background(Pgr.DarkPanel)
+            .drawBehind {
+                drawChamferedBorder(accentColor.copy(alpha = 0.4f), cutDp.toPx(), 1f)
+            }
+            .then(if (display.status is ToolCallStatus.InProgress) Modifier.scanLine() else Modifier)
+            .padding(10.dp)
     ) {
-        // Status icon
-        StatusIcon(display.status)
-
-        Spacer(modifier = Modifier.width(10.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            // Tool name + duration
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+        Row(verticalAlignment = Alignment.Top) {
+            // Status icon
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .drawBehind {
+                        drawCornerBrackets(accentColor.copy(alpha = 0.5f), armLength = 5f, strokeWidth = 1f)
+                    },
+                contentAlignment = Alignment.Center
             ) {
+                when (display.status) {
+                    is ToolCallStatus.InProgress -> {
+                        val transition = rememberInfiniteTransition(label = "toolSpin")
+                        val rotation by transition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 360f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "toolSpinAnim"
+                        )
+                        Icon(
+                            Icons.Rounded.Terminal,
+                            contentDescription = "Running",
+                            tint = Pgr.Cyan,
+                            modifier = Modifier
+                                .size(12.dp)
+                                .graphicsLayer { rotationZ = rotation }
+                        )
+                    }
+                    is ToolCallStatus.Complete -> {
+                        Icon(Icons.Rounded.Check, "Complete", tint = Pgr.Green, modifier = Modifier.size(13.dp))
+                    }
+                    is ToolCallStatus.Error -> {
+                        Icon(Icons.Rounded.Close, "Error", tint = Pgr.Red, modifier = Modifier.size(13.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                // Tool name + duration
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = display.toolName.uppercase(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = accentColor,
+                        letterSpacing = 1.sp
+                    )
+                    if (display.status is ToolCallStatus.Complete) {
+                        Text(
+                            text = formatDuration(display.status.durationMs),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Pgr.TextTertiary
+                        )
+                    }
+                }
+
+                // Status line
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = display.toolName,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = when (display.status) {
+                        is ToolCallStatus.InProgress -> "EXECUTING..."
+                        is ToolCallStatus.Complete -> "COMPLETE"
+                        is ToolCallStatus.Error -> display.status.message
+                    },
+                    fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     color = when (display.status) {
-                        is ToolCallStatus.InProgress -> InProgressBlue
-                        is ToolCallStatus.Complete -> SuccessGreen
-                        is ToolCallStatus.Error -> ErrorRed
-                    }
+                        is ToolCallStatus.Error -> Pgr.Red.copy(alpha = 0.7f)
+                        else -> Pgr.TextTertiary
+                    },
+                    letterSpacing = 0.5.sp
                 )
 
-                if (display.status is ToolCallStatus.Complete) {
+                // Progress bar for in-progress
+                if (display.status is ToolCallStatus.InProgress) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SegmentedProgressBar(
+                        segments = 12,
+                        color = Pgr.Cyan,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Result preview
+                if (display.resultPreview != null && display.status is ToolCallStatus.Complete) {
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = formatDuration(display.status.durationMs),
-                        fontSize = 11.sp,
-                        color = ToolText.copy(alpha = 0.6f)
+                        text = display.resultPreview,
+                        fontSize = 10.sp,
+                        color = Pgr.TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 14.sp
                     )
                 }
             }
-
-            // Status text
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = when (display.status) {
-                    is ToolCallStatus.InProgress -> "Running..."
-                    is ToolCallStatus.Complete -> "Complete"
-                    is ToolCallStatus.Error -> display.status.message
-                },
-                fontSize = 11.sp,
-                color = when (display.status) {
-                    is ToolCallStatus.Error -> ErrorRed.copy(alpha = 0.8f)
-                    else -> ToolText.copy(alpha = 0.5f)
-                }
-            )
-
-            // Progress bar for in-progress
-            if (display.status is ToolCallStatus.InProgress) {
-                Spacer(modifier = Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp)),
-                    color = InProgressBlue,
-                    trackColor = ToolBorder
-                )
-            }
-
-            // Result preview
-            if (display.resultPreview != null && display.status is ToolCallStatus.Complete) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = display.resultPreview,
-                    fontSize = 11.sp,
-                    color = ToolText.copy(alpha = 0.7f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 15.sp
-                )
-            }
         }
     }
-}
-
-@Composable
-private fun StatusIcon(status: ToolCallStatus) {
-    val size = 20.dp
-    when (status) {
-        is ToolCallStatus.InProgress -> {
-            val transition = rememberInfiniteTransition(label = "spin")
-            val rotation by transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "toolSpin"
-            )
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(InProgressBlue.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Build,
-                    contentDescription = "Running",
-                    tint = InProgressBlue,
-                    modifier = Modifier
-                        .size(12.dp)
-                        .graphicsLayer { rotationZ = rotation }
-                )
-            }
-        }
-
-        is ToolCallStatus.Complete -> {
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(SuccessGreen.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = "Complete",
-                    tint = SuccessGreen,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-
-        is ToolCallStatus.Error -> {
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(ErrorRed.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "Error",
-                    tint = ErrorRed,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-    }
-}
-
-private fun formatDuration(ms: Long): String {
-    return if (ms < 1000) "${ms}ms" else "${"%.1f".format(ms / 1000.0)}s"
 }
 
 /**
- * Shows a sequence of tool calls as a vertical step list with connecting lines.
+ * PGR-style segmented progress bar — discrete blocks that fill with animated sweep.
+ */
+@Composable
+private fun SegmentedProgressBar(
+    segments: Int,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition(label = "segProg")
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = segments.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "segSweep"
+    )
+
+    Row(
+        modifier = modifier.height(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        for (i in 0 until segments) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .background(
+                        if (i < sweep.toInt()) color.copy(alpha = 0.8f)
+                        else color.copy(alpha = 0.1f)
+                    )
+            )
+        }
+    }
+}
+
+/**
+ * Tool call steps with connecting lines — PGR tactical readout style.
  */
 @Composable
 fun ToolCallSteps(
@@ -241,59 +233,47 @@ fun ToolCallSteps(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         steps.forEachIndexed { index, step ->
+            val accentColor = when (step.status) {
+                is ToolCallStatus.Complete -> Pgr.Green
+                is ToolCallStatus.Error -> Pgr.Red
+                is ToolCallStatus.InProgress -> Pgr.Cyan
+            }
+
             Row(modifier = Modifier.fillMaxWidth()) {
-                // Step connector line
+                // Connector
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(20.dp)
+                    modifier = Modifier.width(16.dp)
                 ) {
                     if (index > 0) {
                         Box(
                             modifier = Modifier
-                                .width(1.5.dp)
+                                .width(1.dp)
                                 .height(6.dp)
-                                .background(
-                                    when (step.status) {
-                                        is ToolCallStatus.Complete -> SuccessGreen.copy(alpha = 0.3f)
-                                        is ToolCallStatus.Error -> ErrorRed.copy(alpha = 0.3f)
-                                        is ToolCallStatus.InProgress -> InProgressBlue.copy(alpha = 0.3f)
-                                    }
-                                )
+                                .background(accentColor.copy(alpha = 0.25f))
                         )
                     }
-                    // Step dot
+                    // Diamond dot
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when (step.status) {
-                                    is ToolCallStatus.Complete -> SuccessGreen
-                                    is ToolCallStatus.Error -> ErrorRed
-                                    is ToolCallStatus.InProgress -> InProgressBlue
-                                }
-                            )
+                            .size(6.dp)
+                            .graphicsLayer { rotationZ = 45f }
+                            .background(accentColor)
                     )
                     if (index < steps.lastIndex) {
                         Box(
                             modifier = Modifier
-                                .width(1.5.dp)
+                                .width(1.dp)
                                 .height(6.dp)
-                                .background(
-                                    when (steps[index + 1].status) {
-                                        is ToolCallStatus.Complete -> SuccessGreen.copy(alpha = 0.3f)
-                                        is ToolCallStatus.Error -> ErrorRed.copy(alpha = 0.3f)
-                                        is ToolCallStatus.InProgress -> InProgressBlue.copy(alpha = 0.3f)
-                                    }
-                                )
+                                .background(Pgr.TextTertiary.copy(alpha = 0.2f))
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
                 ToolCallBubble(
                     display = step,
@@ -302,4 +282,8 @@ fun ToolCallSteps(
             }
         }
     }
+}
+
+private fun formatDuration(ms: Long): String {
+    return if (ms < 1000) "${ms}ms" else "${"%.1f".format(ms / 1000.0)}s"
 }
