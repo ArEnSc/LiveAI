@@ -107,7 +107,24 @@
             android:background="?android:listDivider"
             android:layout_marginBottom="24dp" />
 
-        <!-- Permissions link -->
+        <!-- Developer Tools Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Developer"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="?android:textColorPrimary"
+            android:layout_marginBottom="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCatalog"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Component Catalog"
+            android:layout_marginBottom="8dp" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPermissions"
             style="@style/Widget.MaterialComponents.Button.TextButton"
