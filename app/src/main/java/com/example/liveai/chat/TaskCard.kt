@@ -52,14 +52,7 @@ fun TaskCard(
     onClear: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val statusColor = when (task.status) {
-        TaskStatus.QUEUED -> Pgr.Muted
-        TaskStatus.RUNNING -> Pgr.Cyan
-        TaskStatus.SUSPENDED -> Pgr.Amber
-        TaskStatus.COMPLETED -> Pgr.Green
-        TaskStatus.FAILED -> Pgr.Red
-        TaskStatus.CANCELLED -> Pgr.Muted
-    }
+    val statusColor = Pgr.OnCard
     val bgColor = when (task.status) {
         TaskStatus.QUEUED -> Pgr.BgQueued
         TaskStatus.RUNNING -> Pgr.BgRunning
@@ -77,8 +70,8 @@ fun TaskCard(
             .clip(shape)
             .background(bgColor)
             .drawBehind {
-                drawChamferedBorder(statusColor.copy(alpha = 0.25f), cutDp.toPx(), 0.8f)
-                drawCornerBrackets(statusColor.copy(alpha = 0.15f), armLength = 7f, strokeWidth = 0.8f, inset = 2f)
+                drawChamferedBorder(Color.White.copy(alpha = 0.2f), cutDp.toPx(), 0.8f)
+                drawCornerBrackets(Color.White.copy(alpha = 0.15f), armLength = 7f, strokeWidth = 0.8f, inset = 2f)
             }
             .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine() else Modifier)
             .padding(10.dp)
@@ -98,7 +91,7 @@ fun TaskCard(
                     text = task.instructions,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Pgr.TextPrimary,
+                    color = Pgr.OnCard,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -108,7 +101,7 @@ fun TaskCard(
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = statusColor,
+                        color = Pgr.OnCardDim,
                         letterSpacing = 1.sp
                     )
                     if (task.status == TaskStatus.RUNNING && task.progress.percent != null) {
@@ -116,7 +109,7 @@ fun TaskCard(
                             text = " / ${(task.progress.percent * 100).toInt()}%",
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = statusColor.copy(alpha = 0.7f)
+                            color = Pgr.OnCardDim
                         )
                     }
                 }
@@ -133,12 +126,12 @@ fun TaskCard(
             if (task.progress.percent != null) {
                 PgrProgressBar(
                     progress = task.progress.percent,
-                    color = Pgr.Cyan,
+                    color = Color.White,
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
                 PgrIndeterminateBar(
-                    color = Pgr.Cyan,
+                    color = Color.White,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -155,7 +148,7 @@ fun TaskCard(
                     },
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = Pgr.TextTertiary,
+                    color = Pgr.OnCardDim,
                     letterSpacing = 0.5.sp
                 )
             }
@@ -168,7 +161,7 @@ fun TaskCard(
                 text = ">> PAUSED — AWAITING RESUME",
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Pgr.Amber.copy(alpha = 0.6f),
+                color = Pgr.OnCardDim,
                 letterSpacing = 0.5.sp
             )
         }
@@ -182,13 +175,13 @@ fun TaskCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(0.5.dp)
-                    .background(Pgr.Green.copy(alpha = 0.2f))
+                    .background(Color.White.copy(alpha = 0.2f))
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = success.summary,
                 fontSize = 11.sp,
-                color = Pgr.TextSecondary,
+                color = Pgr.OnCard,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 15.sp
@@ -197,7 +190,7 @@ fun TaskCard(
                 text = "${"%.1f".format(success.durationMs / 1000.0)}s",
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Pgr.TextTertiary,
+                color = Pgr.OnCardDim,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
@@ -209,7 +202,7 @@ fun TaskCard(
                 text = "ERR: ${(task.result as TaskResult.Failure).error}",
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Pgr.Red.copy(alpha = 0.8f),
+                color = Pgr.OnCardDim,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -243,7 +236,7 @@ private fun TaskStatusDiamond(status: TaskStatus, color: Color) {
                 rotationZ = 45f
                 this.alpha = alpha
             }
-            .background(color)
+            .background(Color.White)
     )
 }
 
@@ -324,20 +317,21 @@ private fun TaskActions(
     color: Color
 ) {
     Row {
+        val btnColor = Color.White
         when (status) {
             TaskStatus.RUNNING -> {
-                if (onPause != null) ActionBtn(Icons.Rounded.Pause, "Pause", Pgr.Amber, onPause)
-                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", Pgr.Red, onCancel)
+                if (onPause != null) ActionBtn(Icons.Rounded.Pause, "Pause", btnColor, onPause)
+                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", btnColor, onCancel)
             }
             TaskStatus.SUSPENDED -> {
-                if (onResume != null) ActionBtn(Icons.Rounded.PlayArrow, "Resume", Pgr.Cyan, onResume)
-                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", Pgr.Red, onCancel)
+                if (onResume != null) ActionBtn(Icons.Rounded.PlayArrow, "Resume", btnColor, onResume)
+                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", btnColor, onCancel)
             }
             TaskStatus.QUEUED -> {
-                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", Pgr.Red, onCancel)
+                if (onCancel != null) ActionBtn(Icons.Rounded.Close, "Cancel", btnColor, onCancel)
             }
             else -> {
-                if (onClear != null) ActionBtn(Icons.Rounded.Cancel, "Clear", Pgr.TextTertiary, onClear)
+                if (onClear != null) ActionBtn(Icons.Rounded.Cancel, "Clear", btnColor, onClear)
             }
         }
     }

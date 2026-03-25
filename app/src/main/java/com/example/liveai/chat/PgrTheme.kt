@@ -51,18 +51,22 @@ object Pgr {
     val Purple = Color(0xFF7B61FF)
     val Muted = Color(0xFF9E9E9E)
 
-    // ── Status card backgrounds (subtle tinted white panels) ──
-    val BgRunning = Color(0xFFF3F0FF)        // purple-tinted white
-    val BgQueued = Color(0xFFF5F5F7)         // neutral light
-    val BgSuspended = Color(0xFFFFF8E8)      // warm amber-tinted
-    val BgCompleted = Color(0xFFEDF7EE)      // green-tinted white
-    val BgFailed = Color(0xFFFDECEC)         // red-tinted white
-    val BgCancelled = Color(0xFFF2F2F4)      // grey-tinted
+    // ── Status card backgrounds (solid colors) ──
+    val BgRunning = Color(0xFF7B61FF)        // solid purple
+    val BgQueued = Color(0xFF9E9E9E)         // solid grey
+    val BgSuspended = Color(0xFFE8A317)      // solid amber
+    val BgCompleted = Color(0xFF43A047)      // solid green
+    val BgFailed = Color(0xFFE53935)         // solid red
+    val BgCancelled = Color(0xFF757575)      // dark grey
 
     // ── Tool call backgrounds ──
-    val BgToolActive = Color(0xFFF0ECFF)     // purple-tinted for running
-    val BgToolDone = Color(0xFFEBF5EB)       // green-tinted for done
-    val BgToolError = Color(0xFFFCEBEB)      // red-tinted for error
+    val BgToolActive = Color(0xFF7B61FF)     // solid purple
+    val BgToolDone = Color(0xFF43A047)       // solid green
+    val BgToolError = Color(0xFFE53935)      // solid red
+
+    // ── Text on solid cards ──
+    val OnCard = Color(0xFFFFFFFF)           // white text on solid bg
+    val OnCardDim = Color(0xFFFFFFFF).copy(alpha = 0.7f)
 
     // ── Text (dark on light, matching ChatColors) ──
     val TextPrimary = Color(0xFF1F1F1F)

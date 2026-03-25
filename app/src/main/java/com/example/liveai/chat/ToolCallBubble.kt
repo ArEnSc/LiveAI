@@ -74,7 +74,7 @@ fun ToolCallBubble(
             .clip(shape)
             .background(bgColor)
             .drawBehind {
-                drawChamferedBorder(accentColor.copy(alpha = 0.3f), cutDp.toPx(), 0.8f)
+                drawChamferedBorder(Color.White.copy(alpha = 0.2f), cutDp.toPx(), 0.8f)
             }
             .then(if (display.status is ToolCallStatus.InProgress) Modifier.scanLine() else Modifier)
             .padding(8.dp)
@@ -85,7 +85,7 @@ fun ToolCallBubble(
                 modifier = Modifier
                     .size(18.dp)
                     .drawBehind {
-                        drawCornerBrackets(accentColor.copy(alpha = 0.4f), armLength = 4f, strokeWidth = 0.8f)
+                        drawCornerBrackets(Color.White.copy(alpha = 0.3f), armLength = 4f, strokeWidth = 0.8f)
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -104,17 +104,17 @@ fun ToolCallBubble(
                         Icon(
                             Icons.Rounded.Terminal,
                             contentDescription = "Running",
-                            tint = Pgr.Cyan,
+                            tint = Color.White,
                             modifier = Modifier
                                 .size(10.dp)
                                 .graphicsLayer { rotationZ = rotation }
                         )
                     }
                     is ToolCallStatus.Complete -> {
-                        Icon(Icons.Rounded.Check, "Complete", tint = Pgr.Green, modifier = Modifier.size(11.dp))
+                        Icon(Icons.Rounded.Check, "Complete", tint = Color.White, modifier = Modifier.size(11.dp))
                     }
                     is ToolCallStatus.Error -> {
-                        Icon(Icons.Rounded.Close, "Error", tint = Pgr.Red, modifier = Modifier.size(11.dp))
+                        Icon(Icons.Rounded.Close, "Error", tint = Color.White, modifier = Modifier.size(11.dp))
                     }
                 }
             }
@@ -133,7 +133,7 @@ fun ToolCallBubble(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        color = accentColor,
+                        color = Color.White,
                         letterSpacing = 1.sp
                     )
                     if (display.status is ToolCallStatus.Complete) {
@@ -141,7 +141,7 @@ fun ToolCallBubble(
                             text = formatDuration(display.status.durationMs),
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = Pgr.TextTertiary
+                            color = Color.White.copy(alpha = 0.6f)
                         )
                     }
                 }
@@ -156,10 +156,7 @@ fun ToolCallBubble(
                     },
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = when (display.status) {
-                        is ToolCallStatus.Error -> Pgr.Red.copy(alpha = 0.7f)
-                        else -> Pgr.TextTertiary
-                    },
+                    color = Color.White.copy(alpha = 0.7f),
                     letterSpacing = 0.5.sp
                 )
 
@@ -168,7 +165,7 @@ fun ToolCallBubble(
                     Spacer(modifier = Modifier.height(6.dp))
                     SegmentedProgressBar(
                         segments = 12,
-                        color = Pgr.Cyan,
+                        color = Color.White,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -179,7 +176,7 @@ fun ToolCallBubble(
                     Text(
                         text = display.resultPreview,
                         fontSize = 10.sp,
-                        color = Pgr.TextSecondary,
+                        color = Color.White.copy(alpha = 0.8f),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         lineHeight = 14.sp
@@ -258,7 +255,7 @@ fun ToolCallSteps(
                             modifier = Modifier
                                 .width(1.dp)
                                 .height(6.dp)
-                                .background(accentColor.copy(alpha = 0.25f))
+                                .background(accentColor.copy(alpha = 0.3f))
                         )
                     }
                     // Diamond dot
@@ -273,7 +270,7 @@ fun ToolCallSteps(
                             modifier = Modifier
                                 .width(1.dp)
                                 .height(6.dp)
-                                .background(Pgr.TextTertiary.copy(alpha = 0.2f))
+                                .background(Pgr.Muted.copy(alpha = 0.3f))
                         )
                     }
                 }
