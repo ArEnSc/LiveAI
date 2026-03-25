@@ -73,13 +73,13 @@ class CatalogActivity : ComponentActivity() {
     }
 }
 
-private val DarkBg = Color(0xFF0A0A0F)
-private val CardBg = Color(0xFF12121A)
-private val SectionAccent = Color(0xFF00D4FF)
-private val TextPrimary = Color(0xFFF0F0F0)
-private val TextSecondary = Color(0xFF8E8E9A)
-private val PlaceholderBg = Color(0xFF1A1A2E)
-private val PlaceholderBorder = Color(0xFF2A3A5C)
+private val DarkBg = Color(0xFFF5F5F7)
+private val CardBg = Color(0xFFFFFFFF)
+private val SectionAccent = Color(0xFF7B61FF)
+private val TextPrimary = Color(0xFF1F1F1F)
+private val TextSecondary = Color(0xFF5F6368)
+private val PlaceholderBg = Color(0xFFF0F0F5)
+private val PlaceholderBorder = Color(0xFFE0E0E6)
 
 @Composable
 fun ComponentCatalog() {
@@ -99,7 +99,7 @@ fun ComponentCatalog() {
                     text = "Component Catalog",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -480,13 +480,13 @@ private fun CatalogPlaceholder(
                 text = title,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = TextPrimary.copy(alpha = 0.6f)
+                color = TextSecondary
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
                 fontSize = 11.sp,
-                color = TextSecondary.copy(alpha = 0.5f)
+                color = TextSecondary.copy(alpha = 0.6f)
             )
         }
     }

@@ -31,39 +31,44 @@ import androidx.compose.animation.core.tween
  * Cold. Angular. Precise. Glowing. Military.
  */
 object Pgr {
-    // ── Backgrounds ──
-    val Black = Color(0xFF0A0A0F)
-    val DarkPanel = Color(0xFF0F1018)
-    val Panel = Color(0xFF161822)
-    val PanelLight = Color(0xFF1E2130)
-    val Surface = Color(0xFF282C3E)
+    // ── Backgrounds (white/light, matching ChatColors) ──
+    val Black = Color(0xFFFFFFFF)            // base background = white
+    val DarkPanel = Color(0xFFFFFFFF)        // card surface = white
+    val Panel = Color(0xFFF7F7FA)            // slightly off-white
+    val PanelLight = Color(0xFFF0F0F5)      // light grey
+    val Surface = Color(0xFFE8E8EE)          // medium grey
+
+    // ── Primary accent (purple from ChatColors) ──
+    val Accent = Color(0xFF7B61FF)
+    val AccentLight = Color(0xFFD7AEFB)
+    val AccentDim = Color(0xFF7B61FF).copy(alpha = 0.15f)
 
     // ── Status accents ──
-    val Cyan = Color(0xFF00D4FF)
-    val Amber = Color(0xFFFFA726)
-    val Red = Color(0xFFFF5252)
-    val Green = Color(0xFF69F0AE)
-    val Purple = Color(0xFF7C4DFF)
-    val Muted = Color(0xFF546E7A)
+    val Cyan = Color(0xFF7B61FF)             // use purple as primary active
+    val Amber = Color(0xFFE8A317)            // warm amber
+    val Red = Color(0xFFE53935)              // error red
+    val Green = Color(0xFF43A047)            // success green
+    val Purple = Color(0xFF7B61FF)
+    val Muted = Color(0xFF9E9E9E)
 
-    // ── Status card backgrounds (subtle tinted panels) ──
-    val BgRunning = Color(0xFF0D1820)       // cyan-tinted dark
-    val BgQueued = Color(0xFF111318)         // neutral dark
-    val BgSuspended = Color(0xFF1A1508)     // warm amber-tinted dark
-    val BgCompleted = Color(0xFF0A1A10)     // green-tinted dark
-    val BgFailed = Color(0xFF1A0C0C)        // red-tinted dark
-    val BgCancelled = Color(0xFF101214)     // cold grey dark
+    // ── Status card backgrounds (subtle tinted white panels) ──
+    val BgRunning = Color(0xFFF3F0FF)        // purple-tinted white
+    val BgQueued = Color(0xFFF5F5F7)         // neutral light
+    val BgSuspended = Color(0xFFFFF8E8)      // warm amber-tinted
+    val BgCompleted = Color(0xFFEDF7EE)      // green-tinted white
+    val BgFailed = Color(0xFFFDECEC)         // red-tinted white
+    val BgCancelled = Color(0xFFF2F2F4)      // grey-tinted
 
     // ── Tool call backgrounds ──
-    val BgToolActive = Color(0xFF0C1520)    // cyan-tinted for running tool
-    val BgToolDone = Color(0xFF0C1810)      // green-tinted for completed tool
-    val BgToolError = Color(0xFF180C0C)     // red-tinted for errored tool
+    val BgToolActive = Color(0xFFF0ECFF)     // purple-tinted for running
+    val BgToolDone = Color(0xFFEBF5EB)       // green-tinted for done
+    val BgToolError = Color(0xFFFCEBEB)      // red-tinted for error
 
-    // ── Text ──
-    val TextPrimary = Color(0xFFE8EAF0)
-    val TextSecondary = Color(0xFF7E8494)
-    val TextTertiary = Color(0xFF454B5C)
-    val TextCyan = Cyan
+    // ── Text (dark on light, matching ChatColors) ──
+    val TextPrimary = Color(0xFF1F1F1F)
+    val TextSecondary = Color(0xFF5F6368)
+    val TextTertiary = Color(0xFF9AA0A6)
+    val TextCyan = Accent
 }
 
 /**
@@ -144,7 +149,7 @@ fun DrawScope.drawChamferedBorder(
  */
 @Composable
 fun Modifier.scanLine(
-    color: Color = Pgr.Cyan.copy(alpha = 0.08f),
+    color: Color = Pgr.Accent.copy(alpha = 0.06f),
     durationMs: Int = 4000
 ): Modifier {
     val transition = rememberInfiniteTransition(label = "scanLine")

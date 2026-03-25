@@ -80,7 +80,7 @@ fun TaskCard(
                 drawChamferedBorder(statusColor.copy(alpha = 0.25f), cutDp.toPx(), 0.8f)
                 drawCornerBrackets(statusColor.copy(alpha = 0.15f), armLength = 7f, strokeWidth = 0.8f, inset = 2f)
             }
-            .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine(Pgr.Cyan.copy(alpha = 0.05f)) else Modifier)
+            .then(if (task.status == TaskStatus.RUNNING) Modifier.scanLine() else Modifier)
             .padding(10.dp)
     ) {
         // Header row
