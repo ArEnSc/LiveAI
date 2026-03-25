@@ -41,10 +41,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.liveai.agent.model.BackgroundTask
+import com.example.liveai.agent.model.TaskProgress
+import com.example.liveai.agent.model.TaskResult
+import com.example.liveai.agent.model.TaskStatus
 import com.example.liveai.chat.ChatColors
 import com.example.liveai.chat.ChatMessage
 import com.example.liveai.chat.ChatTab
 import com.example.liveai.chat.MessageBubble
+import com.example.liveai.chat.TaskCard
+import com.example.liveai.chat.ToolCallBubble
+import com.example.liveai.chat.ToolCallDisplay
+import com.example.liveai.chat.ToolCallStatus
+import com.example.liveai.chat.ToolCallSteps
 
 /**
  * Debug activity for browsing all UI components with every state variant.
@@ -167,9 +176,58 @@ fun ComponentCatalog() {
 
         item {
             CatalogSection(title = "Tool Call Bubbles", count = 3, stage = 2) {
-                CatalogPlaceholder("In-progress", "read_screen running...")
-                CatalogPlaceholder("Complete", "read_screen done in 0.8s with result preview")
-                CatalogPlaceholder("Error", "Service not enabled")
+                CatalogItem("In-progress") {
+                    ToolCallBubble(
+                        display = ToolCallDisplay(
+                            toolName = "read_screen",
+                            status = ToolCallStatus.InProgress
+                        )
+                    )
+                }
+                CatalogItem("Complete with result") {
+                    ToolCallBubble(
+                        display = ToolCallDisplay(
+                            toolName = "read_screen",
+                            status = ToolCallStatus.Complete(durationMs = 820),
+                            resultPreview = "WhatsApp — Chat list: Mom (2 new), Work Group (1 new), Dad"
+                        )
+                    )
+                }
+                CatalogItem("Error") {
+                    ToolCallBubble(
+                        display = ToolCallDisplay(
+                            toolName = "read_screen",
+                            status = ToolCallStatus.Error("Accessibility service not enabled")
+                        )
+                    )
+                }
+            }
+        }
+
+        // --- Stage 2: Tool Call Steps ---
+
+        item {
+            CatalogSection(title = "Tool Call Steps", count = 1, stage = 2) {
+                CatalogItem("Multi-step tool sequence") {
+                    ToolCallSteps(
+                        steps = listOf(
+                            ToolCallDisplay(
+                                toolName = "read_screen",
+                                status = ToolCallStatus.Complete(durationMs = 820),
+                                resultPreview = "WhatsApp — Chat list"
+                            ),
+                            ToolCallDisplay(
+                                toolName = "tap",
+                                status = ToolCallStatus.Complete(durationMs = 150),
+                                resultPreview = "Tapped 'Mom'"
+                            ),
+                            ToolCallDisplay(
+                                toolName = "read_screen",
+                                status = ToolCallStatus.InProgress
+                            )
+                        )
+                    )
+                }
             }
         }
 
@@ -177,12 +235,60 @@ fun ComponentCatalog() {
 
         item {
             CatalogSection(title = "Task Cards", count = 6, stage = 3) {
-                CatalogPlaceholder("Queued", "Waiting for a slot to open")
-                CatalogPlaceholder("Running 60%", "Summarizing... page 7 of 12")
-                CatalogPlaceholder("Suspended", "Paused mid-execution")
-                CatalogPlaceholder("Completed", "Result: dinner at 6, need a ride?")
-                CatalogPlaceholder("Failed", "Network timeout after 3 retries")
-                CatalogPlaceholder("Cancelled", "Cancelled by user")
+                CatalogItem("Queued") {
+                    TaskCard(task = fakeTask(TaskStatus.QUEUED), onCancel = {})
+                }
+                CatalogItem("Running — 60%") {
+                    TaskCard(
+                        task = fakeTask(
+                            TaskStatus.RUNNING,
+                            progress = TaskProgress("summarizing", 0.6f, "page 7 of 12")
+                        ),
+                        onPause = {},
+                        onCancel = {}
+                    )
+                }
+                CatalogItem("Running — indeterminate") {
+                    TaskCard(
+                        task = fakeTask(
+                            TaskStatus.RUNNING,
+                            progress = TaskProgress("downloading", null, null)
+                        ),
+                        onPause = {},
+                        onCancel = {}
+                    )
+                }
+                CatalogItem("Suspended") {
+                    TaskCard(task = fakeTask(TaskStatus.SUSPENDED), onResume = {}, onCancel = {})
+                }
+                CatalogItem("Completed") {
+                    TaskCard(
+                        task = fakeTask(
+                            TaskStatus.COMPLETED,
+                            result = TaskResult.Success(
+                                summary = "Lease renewal: \$2,400/mo, April 1 — March 31, 60-day notice required",
+                                fullContent = "...",
+                                durationMs = 4200
+                            )
+                        ),
+                        onClear = {}
+                    )
+                }
+                CatalogItem("Failed") {
+                    TaskCard(
+                        task = fakeTask(
+                            TaskStatus.FAILED,
+                            result = TaskResult.Failure(
+                                error = "Network timeout after 3 retries",
+                                durationMs = 9500
+                            )
+                        ),
+                        onClear = {}
+                    )
+                }
+                CatalogItem("Cancelled") {
+                    TaskCard(task = fakeTask(TaskStatus.CANCELLED), onClear = {})
+                }
             }
         }
 
@@ -374,3 +480,23 @@ private fun CatalogPlaceholder(
         }
     }
 }
+
+private fun fakeTask(
+    status: TaskStatus,
+    progress: TaskProgress = TaskProgress(),
+    result: TaskResult? = null
+) = BackgroundTask(
+    id = "task_${status.name.lowercase()}",
+    instructions = when (status) {
+        TaskStatus.QUEUED -> "Check pharmacy hours"
+        TaskStatus.RUNNING -> "Summarize lease PDF"
+        TaskStatus.SUSPENDED -> "Download and analyze report"
+        TaskStatus.COMPLETED -> "Summarize lease PDF"
+        TaskStatus.FAILED -> "Fetch weather forecast"
+        TaskStatus.CANCELLED -> "Search for restaurant menus"
+    },
+    createdAt = java.lang.System.currentTimeMillis(),
+    status = status,
+    progress = progress,
+    result = result
+)
