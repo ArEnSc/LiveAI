@@ -24,9 +24,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 
 /**
- * Punishing: Gray Raven inspired design system.
- * Angular cards with layered borders, top-edge highlights,
- * corner vertex accents, tech lines, and gradient fills.
+ * Design system inspired by PGR / augmented-ui / cyberpunk card kits.
+ * Layered borders, gradient fills, chamfered corners, highlight edges.
  */
 object Pgr {
     // ── Backgrounds ──
@@ -49,31 +48,31 @@ object Pgr {
     val Purple = Color(0xFF7B61FF)
     val Muted = Color(0xFF9E9E9E)
 
-    // ── Status card fills (solid base, gradient applied on top) ──
-    val BgRunning = Color(0xFF7B61FF)
+    // ── Status card fills: light (top) → dark (bottom) gradient ──
+    val BgRunning = Color(0xFF8B73FF)
     val BgRunningDark = Color(0xFF5A43D9)
-    val BgQueued = Color(0xFF78909C)
-    val BgQueuedDark = Color(0xFF546E7A)
-    val BgSuspended = Color(0xFFE8A317)
+    val BgQueued = Color(0xFF90A4AE)
+    val BgQueuedDark = Color(0xFF607D8B)
+    val BgSuspended = Color(0xFFF0B840)
     val BgSuspendedDark = Color(0xFFC68A00)
-    val BgCompleted = Color(0xFF43A047)
+    val BgCompleted = Color(0xFF66BB6A)
     val BgCompletedDark = Color(0xFF2E7D32)
-    val BgFailed = Color(0xFFE53935)
+    val BgFailed = Color(0xFFEF5350)
     val BgFailedDark = Color(0xFFC62828)
-    val BgCancelled = Color(0xFF757575)
+    val BgCancelled = Color(0xFF8E8E8E)
     val BgCancelledDark = Color(0xFF616161)
 
     // ── Tool call fills ──
-    val BgToolActive = Color(0xFF7B61FF)
+    val BgToolActive = Color(0xFF8B73FF)
     val BgToolActiveDark = Color(0xFF5A43D9)
-    val BgToolDone = Color(0xFF43A047)
+    val BgToolDone = Color(0xFF66BB6A)
     val BgToolDoneDark = Color(0xFF2E7D32)
-    val BgToolError = Color(0xFFE53935)
+    val BgToolError = Color(0xFFEF5350)
     val BgToolErrorDark = Color(0xFFC62828)
 
     // ── Text on solid cards ──
     val OnCard = Color(0xFFFFFFFF)
-    val OnCardDim = Color(0xFFFFFFFF).copy(alpha = 0.7f)
+    val OnCardDim = Color(0xFFFFFFFF).copy(alpha = 0.75f)
     val OnCardFaint = Color(0xFFFFFFFF).copy(alpha = 0.4f)
 
     // ── Text (dark on light) ──
@@ -93,160 +92,121 @@ class ChamferedShape(private val cutSize: Dp) : Shape {
         density: Density
     ): androidx.compose.ui.graphics.Outline {
         val cut = with(density) { cutSize.toPx() }
-        val path = Path().apply {
-            moveTo(0f, 0f)
-            lineTo(size.width - cut, 0f)
-            lineTo(size.width, cut)
-            lineTo(size.width, size.height)
-            lineTo(cut, size.height)
-            lineTo(0f, size.height - cut)
-            close()
-        }
-        return androidx.compose.ui.graphics.Outline.Generic(path)
+        return androidx.compose.ui.graphics.Outline.Generic(chamferedPath(size.width, size.height, cut))
     }
 }
 
-// ── Chamfered path helper (reused by all draw functions) ──
+// ── Path helpers ──
 
 private fun chamferedPath(w: Float, h: Float, cut: Float): Path = Path().apply {
     moveTo(0f, 0f)
-    lineTo(w - cut, 0f)
-    lineTo(w, cut)
-    lineTo(w, h)
-    lineTo(cut, h)
-    lineTo(0f, h - cut)
+    lineTo(w - cut, 0f)       // top edge → top-right chamfer start
+    lineTo(w, cut)             // top-right chamfer diagonal
+    lineTo(w, h)               // right edge
+    lineTo(cut, h)             // bottom edge → bottom-left chamfer start
+    lineTo(0f, h - cut)        // bottom-left chamfer diagonal
     close()
 }
 
+private fun chamferedPathInset(w: Float, h: Float, cut: Float, inset: Float): Path {
+    val ic = (cut - inset * 0.7f).coerceAtLeast(1f)
+    return Path().apply {
+        moveTo(inset, inset)
+        lineTo(w - inset - ic, inset)
+        lineTo(w - inset, inset + ic)
+        lineTo(w - inset, h - inset)
+        lineTo(inset + ic, h - inset)
+        lineTo(inset, h - inset - ic)
+        close()
+    }
+}
+
 /**
- * Full PGR card treatment — layered borders, gradient fill, highlights, tech details.
+ * Full PGR card treatment with layered borders.
  *
- * Layers (bottom to top):
- * 1. Gradient fill (lighter top → darker bottom)
- * 2. Outer border (bright, ~30% opacity)
- * 3. Inner border (dim, inset 2px)
- * 4. Top-edge highlight (white line along top edge, simulates light catch)
- * 5. Corner vertex accents (small bright dots at chamfer angle points)
- * 6. Tech line (partial line along bottom edge, ~60% width)
- * 7. Corner brackets (L-shaped targeting markers)
+ * Layers:
+ * 1. Gradient fill (light top → dark bottom)
+ * 2. Outer border (following chamfered shape)
+ * 3. Inner inlay border (inset, dimmer — creates depth)
+ * 4. Top-edge highlight (thin bright line — light catch)
+ * 5. Left-edge highlight (thin bright line — side light)
+ * 6. Bottom-edge shadow (thin dark line — grounding)
+ * 7. Chamfer vertex dots (bright accents at angle changes)
+ * 8. Tech line (partial decorative line with tick mark)
  */
 fun DrawScope.drawPgrCard(
     fillLight: Color,
     fillDark: Color,
     borderColor: Color = Color.White,
-    cutSize: Float,
-    borderAlpha: Float = 0.3f
+    cutSize: Float
 ) {
     val w = size.width
     val h = size.height
 
     // 1. Gradient fill
-    val fillPath = chamferedPath(w, h, cutSize)
     drawPath(
-        fillPath,
-        Brush.verticalGradient(
-            colors = listOf(fillLight, fillDark),
-            startY = 0f,
-            endY = h
-        )
+        chamferedPath(w, h, cutSize),
+        Brush.verticalGradient(listOf(fillLight, fillDark))
     )
 
     // 2. Outer border
     drawPath(
         chamferedPath(w, h, cutSize),
-        borderColor.copy(alpha = borderAlpha),
-        style = Stroke(width = 1.2f)
+        borderColor.copy(alpha = 0.35f),
+        style = Stroke(width = 1.5f)
     )
 
-    // 3. Inner border (inset 2px)
-    val inset = 2.5f
-    val innerCut = (cutSize - inset).coerceAtLeast(0f)
+    // 3. Inner inlay border (inset 3px, dimmer)
     drawPath(
-        chamferedPath(w - inset * 2, h - inset * 2, innerCut),
-        borderColor.copy(alpha = borderAlpha * 0.4f),
-        style = Stroke(width = 0.6f)
-    )
-    // Offset the inner path drawing — need to translate
-    // (drawPath doesn't support offset, so we build the path with offset)
-    val innerPath = Path().apply {
-        moveTo(inset, inset)
-        lineTo(w - inset - innerCut, inset)
-        lineTo(w - inset, inset + innerCut)
-        lineTo(w - inset, h - inset)
-        lineTo(inset + innerCut, h - inset)
-        lineTo(inset, h - inset - innerCut)
-        close()
-    }
-    drawPath(
-        innerPath,
-        borderColor.copy(alpha = borderAlpha * 0.4f),
-        style = Stroke(width = 0.5f)
+        chamferedPathInset(w, h, cutSize, 3f),
+        borderColor.copy(alpha = 0.12f),
+        style = Stroke(width = 0.7f)
     )
 
-    // 4. Top-edge highlight (white line, simulates overhead light catch)
+    // 4. Top-edge highlight
     drawLine(
-        borderColor.copy(alpha = 0.25f),
-        start = Offset(1f, 0.5f),
-        end = Offset(w - cutSize - 1f, 0.5f),
+        borderColor.copy(alpha = 0.4f),
+        Offset(2f, 1f),
+        Offset(w - cutSize - 2f, 1f),
         strokeWidth = 1f
     )
 
-    // 5. Corner vertex accents (bright dots at the two chamfer angle points)
-    val dotRadius = 2f
-    // Top-right chamfer vertex
-    drawCircle(
-        borderColor.copy(alpha = 0.5f),
-        radius = dotRadius,
-        center = Offset(w - cutSize, 0f)
-    )
-    drawCircle(
-        borderColor.copy(alpha = 0.5f),
-        radius = dotRadius,
-        center = Offset(w, cutSize)
-    )
-    // Bottom-left chamfer vertex
-    drawCircle(
-        borderColor.copy(alpha = 0.5f),
-        radius = dotRadius,
-        center = Offset(cutSize, h)
-    )
-    drawCircle(
-        borderColor.copy(alpha = 0.5f),
-        radius = dotRadius,
-        center = Offset(0f, h - cutSize)
+    // 5. Left-edge highlight (partial, top 60%)
+    drawLine(
+        borderColor.copy(alpha = 0.15f),
+        Offset(1f, 2f),
+        Offset(1f, h * 0.6f),
+        strokeWidth = 0.7f
     )
 
-    // 6. Tech line (partial bottom edge, ~60% width, offset from left)
-    val techStart = w * 0.25f
+    // 6. Bottom-edge shadow
+    drawLine(
+        Color.Black.copy(alpha = 0.15f),
+        Offset(cutSize + 2f, h - 1f),
+        Offset(w - 2f, h - 1f),
+        strokeWidth = 1f
+    )
+
+    // 7. Chamfer vertex dots
+    val dotR = 1.8f
+    val dotColor = borderColor.copy(alpha = 0.6f)
+    drawCircle(dotColor, dotR, Offset(w - cutSize, 0f))      // top-right start
+    drawCircle(dotColor, dotR, Offset(w, cutSize))            // top-right end
+    drawCircle(dotColor, dotR, Offset(cutSize, h))            // bottom-left start
+    drawCircle(dotColor, dotR, Offset(0f, h - cutSize))       // bottom-left end
+
+    // 8. Tech line (bottom edge, 55% width, with perpendicular tick)
+    val tl = borderColor.copy(alpha = 0.1f)
+    val techStart = w * 0.3f
     val techEnd = w * 0.85f
-    drawLine(
-        borderColor.copy(alpha = 0.15f),
-        start = Offset(techStart, h - 1f),
-        end = Offset(techEnd, h - 1f),
-        strokeWidth = 0.5f
-    )
-    // Small perpendicular tick at the end
-    drawLine(
-        borderColor.copy(alpha = 0.15f),
-        start = Offset(techEnd, h - 1f),
-        end = Offset(techEnd, h - 4f),
-        strokeWidth = 0.5f
-    )
-
-    // 7. Corner brackets
-    val arm = 8f
-    val bw = 0.7f
-    val bc = borderColor.copy(alpha = 0.2f)
-    // Top-left bracket
-    drawLine(bc, Offset(3f, 3f), Offset(3f + arm, 3f), bw)
-    drawLine(bc, Offset(3f, 3f), Offset(3f, 3f + arm), bw)
-    // Bottom-right bracket
-    drawLine(bc, Offset(w - 3f, h - 3f), Offset(w - 3f - arm, h - 3f), bw)
-    drawLine(bc, Offset(w - 3f, h - 3f), Offset(w - 3f, h - 3f - arm), bw)
+    drawLine(tl, Offset(techStart, h - 3f), Offset(techEnd, h - 3f), 0.5f)
+    drawLine(tl, Offset(techEnd, h - 3f), Offset(techEnd, h - 7f), 0.5f)
+    // Small dot at tech line start
+    drawCircle(tl, 1f, Offset(techStart, h - 3f))
 }
 
 /**
- * Draw corner bracket decorations — small L-shaped markers at corners.
+ * Draw corner bracket decorations — L-shaped targeting markers.
  */
 fun DrawScope.drawCornerBrackets(
     color: Color,
@@ -278,7 +238,7 @@ fun DrawScope.drawChamferedBorder(
 }
 
 /**
- * Slow-scrolling scan line across the component.
+ * Slow-scrolling scan line.
  */
 @Composable
 fun Modifier.scanLine(
