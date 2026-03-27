@@ -142,6 +142,21 @@ private fun ReadyContent(
         }
 
         Button(
+            onClick = { onEvent(TtsDemoUiEvent.StreamGenerate) },
+            enabled = !uiState.isGenerating && uiState.text.isNotBlank(),
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(if (uiState.isGenerating && uiState.isPlaying) "Streaming..." else "Stream")
+        }
+    }
+
+    Spacer(modifier = Modifier.height(4.dp))
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Button(
             onClick = {
                 if (uiState.isPlaying) onEvent(TtsDemoUiEvent.StopAudio)
                 else onEvent(TtsDemoUiEvent.PlayAudio)

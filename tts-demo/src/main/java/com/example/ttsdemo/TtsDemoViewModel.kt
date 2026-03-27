@@ -41,6 +41,7 @@ sealed interface TtsDemoUiState {
 sealed interface TtsDemoUiEvent {
     data class TextChanged(val text: String) : TtsDemoUiEvent
     data object Generate : TtsDemoUiEvent
+    data object StreamGenerate : TtsDemoUiEvent
     data object PlayAudio : TtsDemoUiEvent
     data object StopAudio : TtsDemoUiEvent
     data object SaveWav : TtsDemoUiEvent
@@ -71,6 +72,7 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
         when (event) {
             is TtsDemoUiEvent.TextChanged -> updateText(event.text)
             is TtsDemoUiEvent.Generate -> generate()
+            is TtsDemoUiEvent.StreamGenerate -> streamGenerate()
             is TtsDemoUiEvent.PlayAudio -> playAudio()
             is TtsDemoUiEvent.StopAudio -> stopAudio()
             is TtsDemoUiEvent.SaveWav -> saveWav()
@@ -196,6 +198,187 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+    }
+
+    private fun streamGenerate() {
+        val state = _uiState.value
+        if (state !is TtsDemoUiState.Ready || state.isGenerating) return
+        val text = state.text.trim()
+        if (text.isEmpty()) return
+
+        val eng = engine ?: return
+        val tok = tokenizer ?: return
+        val voice = voiceAudio ?: return
+
+        stopAudio()
+
+        _uiState.value = state.copy(
+            isGenerating = true,
+            isPlaying = true,
+            generationLog = listOf("Starting stream generation..."),
+            metrics = null,
+            hasAudio = false
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val log = mutableListOf<String>()
+                log.add("Text: \"$text\"")
+                log.add("LSD steps: ${eng.lsdSteps}, Temp: ${eng.temperature}")
+                log.add("Mode: STREAMING")
+                updateLog(log)
+
+                // Create a MODE_STREAM AudioTrack with a reasonable buffer
+                val minBufferSize = AudioTrack.getMinBufferSize(
+                    PocketTtsEngine.SAMPLE_RATE,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                // Use 4x min buffer to avoid underruns
+                val bufferSize = maxOf(
+                    minBufferSize,
+                    PocketTtsEngine.SAMPLES_PER_FRAME * Short.SIZE_BYTES * 4
+                )
+
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(PocketTtsEngine.SAMPLE_RATE)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(bufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                audioTrack = track
+
+                val bufferFrames = 3
+                var framesBuffered = 0
+                var playbackStarted = false
+                val allFrames = mutableListOf<FloatArray>()
+
+                val result = eng.generate(
+                    text = text,
+                    tokenizer = tok,
+                    voiceAudio = voice,
+                    onFrame = { frame, step ->
+                        val sanitized = sanitizeFrame(frame)
+                        allFrames.add(sanitized)
+
+                        // Convert to PCM16 and write to stream
+                        val pcm16 = ShortArray(sanitized.size) { i ->
+                            (sanitized[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                        }
+                        track.write(pcm16, 0, pcm16.size)
+
+                        framesBuffered++
+
+                        // Start playback after buffering a few frames
+                        if (!playbackStarted && framesBuffered >= bufferFrames) {
+                            track.play()
+                            playbackStarted = true
+                            log.add("Playback started at frame $step (~${bufferFrames * 80}ms latency)")
+                            updateLog(log)
+                        }
+
+                        if (step % 10 == 0) {
+                            log.add("Frame $step streaming...")
+                            updateLog(log)
+                        }
+                    }
+                )
+
+                // Start playback if we finished before hitting the buffer threshold
+                if (!playbackStarted && framesBuffered > 0) {
+                    track.play()
+                }
+
+                // Concatenate all frames for replay/save
+                val totalSamples = allFrames.sumOf { it.size }
+                val fullAudio = FloatArray(totalSamples)
+                var offset = 0
+                for (frame in allFrames) {
+                    frame.copyInto(fullAudio, offset)
+                    offset += frame.size
+                }
+                generatedAudio = fullAudio
+
+                log.add("---")
+                log.add("Done! ${result.metrics.framesGenerated} frames")
+                log.add("Audio: ${result.metrics.audioDurationSec}s")
+                log.add("Total time: ${result.metrics.totalTimeMs}ms")
+                log.add("RTFx: ${String.format("%.2f", result.metrics.realtimeFactor)}x")
+
+                val memInfo = getMemoryInfo(getApplication())
+
+                _uiState.update { current ->
+                    if (current is TtsDemoUiState.Ready) {
+                        current.copy(
+                            isGenerating = false,
+                            isPlaying = true,
+                            generationLog = log.toList(),
+                            metrics = result.metrics,
+                            hasAudio = true,
+                            systemMemoryMb = memInfo.first,
+                            appMemoryMb = memInfo.second
+                        )
+                    } else current
+                }
+
+                // Wait for AudioTrack to finish draining, then clean up
+                val remainingSamples = totalSamples - track.playbackHeadPosition
+                if (remainingSamples > 0) {
+                    val remainingMs = (remainingSamples * 1000L) / PocketTtsEngine.SAMPLE_RATE
+                    kotlinx.coroutines.delay(remainingMs + 100)
+                }
+
+                track.stop()
+                track.release()
+                if (audioTrack === track) audioTrack = null
+
+                _uiState.update { current ->
+                    if (current is TtsDemoUiState.Ready) current.copy(isPlaying = false) else current
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Stream generation failed", e)
+                audioTrack?.stop()
+                audioTrack?.release()
+                audioTrack = null
+                _uiState.update { current ->
+                    if (current is TtsDemoUiState.Ready) {
+                        current.copy(
+                            isGenerating = false,
+                            isPlaying = false,
+                            generationLog = listOf("ERROR: ${e.message}", e.stackTraceToString().take(500))
+                        )
+                    } else current
+                }
+            }
+        }
+    }
+
+    /**
+     * Sanitize a single audio frame: replace NaN/Inf with 0, clamp to [-1, 1].
+     */
+    private fun sanitizeFrame(frame: FloatArray): FloatArray {
+        val sanitized = FloatArray(frame.size)
+        for (i in frame.indices) {
+            val sample = frame[i]
+            sanitized[i] = if (sample.isNaN() || sample.isInfinite()) {
+                0f
+            } else {
+                sample.coerceIn(-1f, 1f)
+            }
+        }
+        return sanitized
     }
 
     private fun updateLog(log: List<String>) {
