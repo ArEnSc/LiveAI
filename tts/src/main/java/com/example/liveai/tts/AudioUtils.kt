@@ -120,19 +120,18 @@ object AudioUtils {
     }
 
     /**
-     * Clamp float samples to [-1, 1], replacing NaN/Infinity with 0.
+     * Clamp float samples to [-1, 1] in-place, replacing NaN/Infinity with 0.
      */
     fun sanitize(frame: FloatArray): FloatArray {
-        val sanitized = FloatArray(frame.size)
         for (i in frame.indices) {
             val sample = frame[i]
-            sanitized[i] = if (sample.isNaN() || sample.isInfinite()) {
+            frame[i] = if (sample.isNaN() || sample.isInfinite()) {
                 0f
             } else {
                 sample.coerceIn(-1f, 1f)
             }
         }
-        return sanitized
+        return frame
     }
 
     /**

@@ -48,6 +48,9 @@ class PocketTtsProvider(
     private var voiceAudio: FloatArray? = null
     private var audioTrack: AudioTrack? = null
 
+    // Pre-allocated PCM buffer reused every frame to avoid per-frame allocation
+    private val pcm16Buffer = ShortArray(PocketTtsEngine.SAMPLES_PER_FRAME)
+
     private val speaking = AtomicBoolean(false)
     private val stopRequested = AtomicBoolean(false)
     private val initialized = AtomicBoolean(false)
@@ -206,14 +209,19 @@ class PocketTtsProvider(
             onFrame = { frame, _ ->
                 if (stopRequested.get()) return@generate
 
-                val sanitized = AudioUtils.sanitize(frame)
+                // Sanitize in-place (no allocation)
+                AudioUtils.sanitize(frame)
 
                 // Compute RMS for lip sync
-                mouthVolume = AudioUtils.rms(sanitized, gain = 3f)
+                mouthVolume = AudioUtils.rms(frame, gain = 3f)
 
-                val pcm16 = AudioUtils.floatToPcm16(sanitized)
-                track.write(pcm16, 0, pcm16.size)
-                totalSamplesWritten += pcm16.size
+                // Convert to PCM16 using pre-allocated buffer
+                val len = frame.size
+                for (i in 0 until len) {
+                    pcm16Buffer[i] = (frame[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                }
+                track.write(pcm16Buffer, 0, len)
+                totalSamplesWritten += len
                 framesBuffered++
 
                 if (!playbackStarted && framesBuffered >= BUFFER_FRAMES_BEFORE_PLAY) {

@@ -45,6 +45,7 @@ class PocketTtsEngine(private val context: Context) {
     private lateinit var reusableEmptyText: OnnxTensor    // [1, 0, 1024] — constant
     private val flowSeqBuffer = FloatArray(LATENT_DIM)    // reusable buffer for sequence input
     private val flowXBuffer = FloatArray(LATENT_DIM)      // reusable buffer for flow x input
+    private val flowOutputBuffer = FloatArray(LATENT_DIM) // reusable buffer for flow matching output
     private val flowScalarS = floatArrayOf(0f)             // reusable [1,1] for s
     private val flowScalarT = floatArrayOf(0f)             // reusable [1,1] for t
 
@@ -74,6 +75,7 @@ class PocketTtsEngine(private val context: Context) {
         val modelLoadTimeMs: Long = 0,
         val voiceEncodeTimeMs: Long = 0,
         val textConditionTimeMs: Long = 0,
+        val conditioningTimeMs: Long = 0,
         val generationTimeMs: Long = 0,
         val totalTimeMs: Long = 0,
         val framesGenerated: Int = 0,
@@ -259,25 +261,26 @@ class PocketTtsEngine(private val context: Context) {
         val flowState = initState(flowLmMain)
         flowLmPrevResult = null
 
-        // 4. Voice conditioning pass (populates KV-cache)
+        // 4. Voice + text conditioning passes (populate KV-cache)
+        val condStart = System.currentTimeMillis()
         conditionFlowLm(flowState, voiceEmbeddings = voiceEmbeddings)
-        trackMemory()
-
-        // 5. Text conditioning pass (extends KV-cache)
         conditionFlowLm(flowState, textEmbeddings = textEmbeddings)
-        trackMemory()
+        val condTime = System.currentTimeMillis() - condStart
+        Log.i(TAG, "KV-cache conditioning in ${condTime}ms")
 
-        // 6. Initialize mimi_decoder state
+        // 5. Initialize mimi_decoder state
         val mimiState = initState(mimiDecoder)
         mimiPrevResult = null
 
-        // 7. Autoregressive generation loop
+        // 6. Autoregressive generation loop
+        val isStreaming = onFrame != null
         val genStart = System.currentTimeMillis()
-        val allAudioFrames = mutableListOf<FloatArray>()
+        val allAudioFrames = if (isStreaming) null else mutableListOf<FloatArray>()
         var currentInput = FloatArray(LATENT_DIM) { Float.NaN } // BOS = NaN-filled
 
         var eosStep: Int? = null
         var framesGenerated = 0
+        var totalSamplesGenerated = 0
         var totalFlowLmMs = 0L
         var totalFlowMatchMs = 0L
         var totalDecoderMs = 0L
@@ -293,7 +296,6 @@ class PocketTtsEngine(private val context: Context) {
             var t0 = System.nanoTime()
             val (conditioning, eosLogit) = runFlowLmMain(flowState, currentInput)
             totalFlowLmMs += (System.nanoTime() - t0) / 1_000_000
-            trackMemory()
 
             // Check EOS
             if (eosLogit > eosThreshold && eosStep == null) {
@@ -307,28 +309,32 @@ class PocketTtsEngine(private val context: Context) {
 
             // Flow matching (ODE solver)
             t0 = System.nanoTime()
-            val nextLatent = runFlowMatching(conditioning)
+            runFlowMatching(conditioning)
             totalFlowMatchMs += (System.nanoTime() - t0) / 1_000_000
-            trackMemory()
 
             // Decode audio frame
             t0 = System.nanoTime()
-            val audioFrame = runMimiDecoder(mimiState, nextLatent)
+            val audioFrame = runMimiDecoder(mimiState, flowOutputBuffer)
             totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
-            allAudioFrames.add(audioFrame)
+            allAudioFrames?.add(audioFrame)
+            totalSamplesGenerated += audioFrame.size
             framesGenerated++
-            trackMemory()
 
             // Callback for streaming
             onFrame?.invoke(audioFrame, step)
 
-            // Prepare next input
-            currentInput = nextLatent
+            // Prepare next input — copy from output buffer since it gets overwritten
+            flowOutputBuffer.copyInto(currentInput)
 
+            // Track memory occasionally, not every frame
             if (step % 10 == 0) {
+                trackMemory()
                 Log.d(TAG, "Step $step: generated ${audioFrame.size} samples")
             }
         }
+
+        // Final memory check
+        trackMemory()
 
         // Clean up held results from zero-copy state
         flowLmPrevResult?.close()
@@ -339,16 +345,21 @@ class PocketTtsEngine(private val context: Context) {
         val genTime = System.currentTimeMillis() - genStart
         val totalTime = System.currentTimeMillis() - totalStart
 
-        // Concatenate all audio
-        val totalSamples = allAudioFrames.sumOf { it.size }
-        val audio = FloatArray(totalSamples)
-        var offset = 0
-        for (frame in allAudioFrames) {
-            frame.copyInto(audio, offset)
-            offset += frame.size
+        // Concatenate all audio (only when not streaming)
+        val audio = if (allAudioFrames != null) {
+            val totalSamples = allAudioFrames.sumOf { it.size }
+            val buf = FloatArray(totalSamples)
+            var offset = 0
+            for (frame in allAudioFrames) {
+                frame.copyInto(buf, offset)
+                offset += frame.size
+            }
+            buf
+        } else {
+            FloatArray(0)
         }
 
-        val audioDuration = audio.size.toFloat() / SAMPLE_RATE
+        val audioDuration = totalSamplesGenerated.toFloat() / SAMPLE_RATE
         val rtfx = if (totalTime > 0) audioDuration / (totalTime / 1000f) else 0f
         val peakMb = peakMemory / (1024f * 1024f)
 
@@ -356,6 +367,7 @@ class PocketTtsEngine(private val context: Context) {
         val metrics = PerformanceMetrics(
             voiceEncodeTimeMs = voiceEncodeTime,
             textConditionTimeMs = textCondTime,
+            conditioningTimeMs = condTime,
             generationTimeMs = genTime,
             totalTimeMs = totalTime,
             framesGenerated = framesGenerated,
@@ -618,7 +630,10 @@ class PocketTtsEngine(private val context: Context) {
     // Persistent RNG avoids re-seeding each frame
     private val rng = java.util.Random()
 
-    private fun runFlowMatching(conditioning: FloatArray): FloatArray {
+    /**
+     * Run flow matching ODE solver. Result is written into [flowOutputBuffer].
+     */
+    private fun runFlowMatching(conditioning: FloatArray) {
         val dt = 1.0f / lsdSteps
         val std = if (temperature > 0) sqrt(temperature.toDouble()).toFloat() else 0f
 
@@ -668,8 +683,8 @@ class PocketTtsEngine(private val context: Context) {
 
         cTensor.close()
 
-        // Return a copy since flowXBuffer will be overwritten next frame
-        return flowXBuffer.copyOf()
+        // Copy result to output buffer (flowXBuffer will be overwritten next frame)
+        flowXBuffer.copyInto(flowOutputBuffer)
     }
 
     private fun runMimiDecoder(
