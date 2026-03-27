@@ -46,8 +46,6 @@ object Live2DSessionFactory {
         manager.setAudioDrivenMotion(audioMotion)
 
         val tiltSource = GyroscopeTiltSource(context)
-        tiltSource.start()
-
         val gyroscopeMotion = GyroscopeDrivenMotion(tiltSource)
         manager.setGyroscopeDrivenMotion(gyroscopeMotion)
 

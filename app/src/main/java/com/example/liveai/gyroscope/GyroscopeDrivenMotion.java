@@ -32,7 +32,7 @@ public class GyroscopeDrivenMotion {
 
     public GyroscopeDrivenMotion(GyroscopeTiltSource tiltSource) {
         this.tiltSource = tiltSource;
-        this.config = new GyroMotionConfig();
+        this.config = new GyroMotionConfig(false, java.util.Collections.emptyList());
     }
 
     public GyroMotionConfig getConfig() {
@@ -40,8 +40,15 @@ public class GyroscopeDrivenMotion {
     }
 
     public void setConfig(GyroMotionConfig config) {
+        boolean wasEnabled = this.config.getEnabled();
         this.config = config;
         bindingsResolved = false;
+
+        if (config.getEnabled() && !wasEnabled) {
+            tiltSource.start();
+        } else if (!config.getEnabled() && wasEnabled) {
+            tiltSource.stop();
+        }
     }
 
     private void resolveBindings() {
