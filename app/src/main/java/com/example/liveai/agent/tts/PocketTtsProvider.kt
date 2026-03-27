@@ -34,12 +34,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class PocketTtsProvider(
     private val context: Context,
-    private val voiceAssetPath: String = "voice/reference.wav"
+    private val voiceAssetPath: String = "voice/reference.wav",
+    private val xnnpackHotPath: Boolean = true
 ) : TtsProvider {
 
     companion object {
         private const val TAG = "PocketTtsProvider"
-        private const val BUFFER_FRAMES_BEFORE_PLAY = 3
+        private const val BUFFER_FRAMES_BEFORE_PLAY = 1
     }
 
     private var engine: PocketTtsEngine? = null
@@ -81,6 +82,7 @@ class PocketTtsProvider(
         if (initialized.get()) return@withContext 0L
 
         val eng = PocketTtsEngine(context)
+        eng.useXnnpackForHotPath = xnnpackHotPath
         val loadTime = eng.loadModels()
 
         val tok = SentencePieceTokenizer.load(
