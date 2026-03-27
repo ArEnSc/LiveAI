@@ -75,6 +75,14 @@ class WallpaperSetupActivity : AppCompatActivity() {
         const val MODE_WALLPAPER = "wallpaper"
         const val MODE_OVERLAY = "overlay"
         const val PARAM_OVERRIDES_PREFS = "param_overrides"
+
+        private const val TAB_POSITION = 0
+        private const val TAB_EFFECTS = 1
+        private const val TAB_AUDIO = 2
+        private const val TAB_GYRO = 3
+        private const val TAB_INTERACT = 4
+        private const val TAB_PARAMS = 5
+        private const val TAB_TTS = 6
     }
 
     private var setupMode = MODE_WALLPAPER
@@ -246,8 +254,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
         if (panelCollapsed) {
             panel.visibility = View.GONE
             hintLabel?.text = when (activeTabIndex) {
-                0 -> "Drag to move  |  Pinch to zoom  \u2022  Tap to show menu"
-                4 -> "Drag zones to interact  \u2022  Tap to show menu"
+                TAB_POSITION -> "Drag to move  |  Pinch to zoom  \u2022  Tap to show menu"
+                TAB_INTERACT -> "Drag zones to interact  \u2022  Tap to show menu"
                 else -> "Tap to show menu"
             }
         } else {
@@ -258,8 +266,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
     private fun updateHintForTab(index: Int) {
         hintLabel?.text = when (index) {
-            0 -> "Drag to move  |  Pinch to zoom  \u2022  Tap to hide menu"
-            4 -> "Drag zones to interact  \u2022  Tap to hide menu"
+            TAB_POSITION -> "Drag to move  |  Pinch to zoom  \u2022  Tap to hide menu"
+            TAB_INTERACT -> "Drag zones to interact  \u2022  Tap to hide menu"
             else -> "Tap to hide menu"
         }
     }
@@ -330,7 +338,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         val tabContents = mutableListOf<LinearLayout>()
 
         fun selectTab(index: Int) {
-            if (activeTabIndex == 4 && index != 4) {
+            if (activeTabIndex == TAB_INTERACT && index != TAB_INTERACT) {
                 val zones = ZoneRepository.loadZones(this@WallpaperSetupActivity)
                 val allParamIds = zones.flatMap { zone ->
                     zone.bindings.map { it.paramId }
@@ -362,7 +370,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 updateHintForTab(index)
             }
 
-            if (index == 4) {
+            if (index == TAB_INTERACT) {
                 rebuildTouchHandler()
             }
 
@@ -685,11 +693,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         glSurfaceView?.setOnTouchListener { _, event ->
             // Interact tab: forward to zone touch handler
-            if (activeTabIndex == 4) {
+            if (activeTabIndex == TAB_INTERACT) {
                 return@setOnTouchListener touchHandler?.onTouchEvent(event) == true
             }
-            // Only Position tab (0) allows drag/scale
-            if (activeTabIndex != 0) return@setOnTouchListener false
+            // Only Position tab allows drag/scale
+            if (activeTabIndex != TAB_POSITION) return@setOnTouchListener false
 
             scaleDetector.onTouchEvent(event)
 
