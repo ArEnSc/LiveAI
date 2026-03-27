@@ -38,6 +38,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Don't compress ONNX models or SentencePiece model in assets
+    androidResources {
+        noCompress += listOf("onnx", "model")
+    }
 }
 
 dependencies {
@@ -67,5 +72,6 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
 
     implementation(project(":framework"))
+    implementation(project(":tts"))
     implementation(fileTree(mapOf("dir" to "../libs", "include" to listOf("*.aar"))))
 }
