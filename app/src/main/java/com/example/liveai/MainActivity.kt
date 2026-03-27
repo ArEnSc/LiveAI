@@ -1,9 +1,12 @@
 package com.example.liveai
 
+import android.app.WallpaperManager
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
@@ -79,6 +82,10 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, WallpaperSetupActivity::class.java))
         }
 
+        findViewById<Button>(R.id.btnRemoveWallpaper).setOnClickListener {
+            removeWallpaper()
+        }
+
         findViewById<Button>(R.id.btnCatalog).setOnClickListener {
             startActivity(Intent(this, CatalogActivity::class.java))
         }
@@ -91,6 +98,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         enableOverlayButtons()
+        updateRemoveButtonState()
     }
 
     private fun disableOverlayButtons() {
@@ -101,6 +109,45 @@ class MainActivity : AppCompatActivity() {
     private fun enableOverlayButtons() {
         btnOverlayPreview?.isEnabled = true
         btnToggleOverlay?.isEnabled = true
+    }
+
+    private fun isOurWallpaperActive(): Boolean {
+        val wm = WallpaperManager.getInstance(this)
+        val info = wm.wallpaperInfo ?: return false
+        val ourComponent = ComponentName(this, Live2DWallpaperService::class.java)
+        return info.component == ourComponent
+    }
+
+    private fun updateRemoveButtonState() {
+        val btnRemove = findViewById<Button>(R.id.btnRemoveWallpaper)
+        btnRemove.isEnabled = isOurWallpaperActive()
+    }
+
+    private fun removeWallpaper() {
+        if (!isOurWallpaperActive()) {
+            Toast.makeText(this, "Live wallpaper is not active", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val wm = WallpaperManager.getInstance(this)
+        if (!wm.isSetWallpaperAllowed) {
+            Toast.makeText(this, "Wallpaper changes not allowed by device policy", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                wm.clear(WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK)
+            } else {
+                wm.clear()
+            }
+            Toast.makeText(this, "Live wallpaper removed", Toast.LENGTH_SHORT).show()
+            Log.d(TAG, "Live wallpaper cleared successfully")
+            updateRemoveButtonState()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove wallpaper", e)
+            Toast.makeText(this, "Failed to remove wallpaper: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun launchOverlayService() {
