@@ -50,6 +50,7 @@
         <activity
             android:name=".WallpaperSetupActivity"
             android:exported="false"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.LiveAI" />
 
         <service
