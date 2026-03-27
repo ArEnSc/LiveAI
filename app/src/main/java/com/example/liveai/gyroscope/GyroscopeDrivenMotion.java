@@ -17,11 +17,11 @@ import java.util.List;
 public class GyroscopeDrivenMotion {
 
     private final GyroscopeTiltSource tiltSource;
-    private GyroMotionConfig config;
+    private volatile GyroMotionConfig config;
 
     // Resolved bindings (lazy, needs CubismFramework initialized)
     private final List<ResolvedBinding> resolvedBindings = new ArrayList<>();
-    private boolean bindingsResolved = false;
+    private volatile boolean bindingsResolved = false;
 
     private static class ResolvedBinding {
         CubismId paramId;
