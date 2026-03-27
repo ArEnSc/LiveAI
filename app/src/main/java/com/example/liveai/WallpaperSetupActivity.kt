@@ -46,12 +46,20 @@ import com.example.liveai.gyroscope.GyroMotionConfig
 import com.example.liveai.gyroscope.GyroscopeDrivenMotion
 import com.example.liveai.gyroscope.loadGyroMotionConfig
 import com.example.liveai.gyroscope.save
+import com.example.liveai.agent.tts.PocketTtsProvider
+import com.example.liveai.live2d.LAppModel
 import com.example.liveai.setup.AudioTabBuilder
 import com.example.liveai.setup.EffectsTabBuilder
 import com.example.liveai.setup.GyroscopeTabBuilder
 import com.example.liveai.setup.ParameterTabBuilder
 import com.example.liveai.setup.PositionTabBuilder
 import com.example.liveai.setup.SetupUiHelpers
+import com.example.liveai.setup.TtsTabBuilder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -87,6 +95,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioTab: AudioTabBuilder? = null
     private var gyroscopeTab: GyroscopeTabBuilder? = null
     private var parameterTab: ParameterTabBuilder? = null
+    private var ttsTab: TtsTabBuilder? = null
+
+    // TTS
+    private var ttsProvider: PocketTtsProvider? = null
+    private val ttsScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var modelScale = 1.0f
     private var offsetX = 0.0f
@@ -298,7 +311,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         })
 
         // --- Tab bar ---
-        val tabNames = listOf("Position", "Effects", "Audio", "Gyro", "Interact", "Params")
+        val tabNames = listOf("Position", "Effects", "Audio", "Gyro", "Interact", "Params", "TTS")
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -511,6 +524,19 @@ class WallpaperSetupActivity : AppCompatActivity() {
         tabContents.add(paramsContent)
         contentHost.addView(paramsContent)
 
+        // ===== TAB: TTS =====
+        val ttsBuilder = TtsTabBuilder(
+            context = this,
+            onGenerate = { text -> speakTts(text) },
+            onStop = { stopTts() },
+            isSpeaking = { ttsProvider?.isSpeaking == true },
+            isInitialized = { ttsProvider != null }
+        )
+        ttsTab = ttsBuilder
+        val ttsContent = ttsBuilder.build()
+        tabContents.add(ttsContent)
+        contentHost.addView(ttsContent)
+
         // Wrap content in ScrollView
         val scrollView = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
@@ -577,6 +603,47 @@ class WallpaperSetupActivity : AppCompatActivity() {
         selectTab(0)
 
         return outerWrapper
+    }
+
+    private fun speakTts(text: String) {
+        ttsScope.launch {
+            try {
+                val provider = ttsProvider ?: run {
+                    ttsTab?.updateStatus("Loading models...")
+                    ttsTab?.setButtonStates(speaking = true)
+                    val p = PocketTtsProvider(this@WallpaperSetupActivity)
+                    val loadTime = p.initialize()
+                    ttsProvider = p
+
+                    // Connect mouth volume to Live2D model
+                    val volumeSource = LAppModel.MouthVolumeSource { p.mouthVolume }
+                    glSurfaceView?.queueEvent {
+                        live2DManager?.setMouthVolumeSource(volumeSource)
+                    }
+
+                    ttsTab?.updateStatus("Models loaded in ${loadTime}ms")
+                    p
+                }
+
+                ttsTab?.setButtonStates(speaking = true)
+                ttsTab?.updateStatus("Speaking...")
+
+                provider.speak(text)
+
+                ttsTab?.setButtonStates(speaking = false)
+                ttsTab?.updateStatus("Done")
+            } catch (e: Exception) {
+                Log.e(TAG, "TTS failed", e)
+                ttsTab?.setButtonStates(speaking = false)
+                ttsTab?.updateStatus("Error: ${e.message}")
+            }
+        }
+    }
+
+    private fun stopTts() {
+        ttsProvider?.stop()
+        ttsTab?.setButtonStates(speaking = false)
+        ttsTab?.updateStatus("Stopped")
     }
 
     private fun rebuildTouchHandler() {
@@ -818,6 +885,11 @@ class WallpaperSetupActivity : AppCompatActivity() {
         audioDrivenMotion = null
         gyroscopeDrivenMotion = null
 
+        // Release TTS
+        ttsScope.cancel()
+        ttsProvider?.release()
+        ttsProvider = null
+
         // Release view references so GC can collect them promptly
         glSurfaceView = null
         loadingOverlay = null
@@ -832,6 +904,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         effectsTab = null
         audioTab = null
         parameterTab = null
+        ttsTab = null
     }
 
     inner class SetupRenderer : GLSurfaceView.Renderer {

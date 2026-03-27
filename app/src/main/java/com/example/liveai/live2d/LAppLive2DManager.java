@@ -54,6 +54,7 @@ public class LAppLive2DManager implements InteractionTarget {
 
     private AudioDrivenMotion audioDrivenMotion;
     private GyroscopeDrivenMotion gyroscopeDrivenMotion;
+    private LAppModel.MouthVolumeSource mouthVolumeSource;
 
     public void setAudioDrivenMotion(AudioDrivenMotion motion) {
         this.audioDrivenMotion = motion;
@@ -69,6 +70,13 @@ public class LAppLive2DManager implements InteractionTarget {
         }
     }
 
+    public void setMouthVolumeSource(LAppModel.MouthVolumeSource source) {
+        this.mouthVolumeSource = source;
+        if (model != null) {
+            model.setMouthVolumeSource(source);
+        }
+    }
+
     public void loadModel(String dir, String modelJsonName) {
         releaseModel();
 
@@ -80,6 +88,9 @@ public class LAppLive2DManager implements InteractionTarget {
         }
         if (gyroscopeDrivenMotion != null) {
             model.setGyroscopeDrivenMotion(gyroscopeDrivenMotion);
+        }
+        if (mouthVolumeSource != null) {
+            model.setMouthVolumeSource(mouthVolumeSource);
         }
         if (!parameterOverrides.isEmpty()) {
             model.setParameterOverrides(parameterOverrides);

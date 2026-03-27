@@ -37,6 +37,15 @@ public class LAppModel extends CubismUserModel {
     private AudioDrivenMotion audioDrivenMotion;
     private GyroscopeDrivenMotion gyroscopeDrivenMotion;
     private Map<String, Float> parameterOverrides = new HashMap<>();
+    private MouthVolumeSource mouthVolumeSource;
+
+    /**
+     * Provides mouth openness (0.0 – 1.0) for lip sync.
+     * Typically backed by TTS audio amplitude.
+     */
+    public interface MouthVolumeSource {
+        float getMouthVolume();
+    }
 
     private final List<CubismId> eyeBlinkIds = new ArrayList<>();
     private final List<CubismId> lipSyncIds = new ArrayList<>();
@@ -107,6 +116,10 @@ public class LAppModel extends CubismUserModel {
 
     public void setGyroscopeDrivenMotion(GyroscopeDrivenMotion motion) {
         this.gyroscopeDrivenMotion = motion;
+    }
+
+    public void setMouthVolumeSource(MouthVolumeSource source) {
+        this.mouthVolumeSource = source;
     }
 
     public void setParameterOverrides(Map<String, Float> overrides) {
@@ -193,6 +206,21 @@ public class LAppModel extends CubismUserModel {
 
         if (breath != null) {
             breath.updateParameters(model, deltaTimeSeconds);
+        }
+
+        // Lip sync: drive mouth params from TTS audio volume
+        if (mouthVolumeSource != null) {
+            float vol = mouthVolumeSource.getMouthVolume();
+            if (vol > 0.01f) {
+                for (CubismId lipId : lipSyncIds) {
+                    model.addParameterValue(lipId, vol);
+                }
+                // Fallback: if no lipSyncIds defined in model, try common param
+                if (lipSyncIds.isEmpty()) {
+                    CubismId mouthId = CubismFramework.getIdManager().getId("ParamMouthOpenY");
+                    model.addParameterValue(mouthId, vol);
+                }
+            }
         }
 
         // Apply user parameter overrides BEFORE physics so that overridden
