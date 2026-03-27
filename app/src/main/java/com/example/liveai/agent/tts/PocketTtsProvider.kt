@@ -5,13 +5,13 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
+import com.example.liveai.tts.AudioUtils
 import com.example.liveai.tts.PocketTtsEngine
 import com.example.liveai.tts.SentencePieceTokenizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.sqrt
 
 /**
  * TtsProvider backed by the PocketTTS ONNX engine.
@@ -117,8 +117,6 @@ class PocketTtsProvider(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: GenerationStoppedException) {
-            Log.i(TAG, "Speech stopped by request")
         } catch (e: Exception) {
             Log.e(TAG, "Speech failed", e)
         } finally {
@@ -195,12 +193,12 @@ class PocketTtsProvider(
             onFrame = { frame, _ ->
                 if (stopRequested.get()) return@generate
 
-                val sanitized = sanitizeFrame(frame)
+                val sanitized = AudioUtils.sanitize(frame)
 
                 // Compute RMS for lip sync
-                mouthVolume = computeRms(sanitized)
+                mouthVolume = AudioUtils.rms(sanitized, gain = 3f)
 
-                val pcm16 = floatToPcm16(sanitized)
+                val pcm16 = AudioUtils.floatToPcm16(sanitized)
                 track.write(pcm16, 0, pcm16.size)
                 totalSamplesWritten += pcm16.size
                 framesBuffered++
@@ -252,38 +250,4 @@ class PocketTtsProvider(
         track.release()
     }
 
-    private fun sanitizeFrame(frame: FloatArray): FloatArray {
-        val sanitized = FloatArray(frame.size)
-        for (i in frame.indices) {
-            val sample = frame[i]
-            sanitized[i] = if (sample.isNaN() || sample.isInfinite()) {
-                0f
-            } else {
-                sample.coerceIn(-1f, 1f)
-            }
-        }
-        return sanitized
-    }
-
-    private fun floatToPcm16(audio: FloatArray): ShortArray {
-        return ShortArray(audio.size) { i ->
-            (audio[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-        }
-    }
-
-    /**
-     * Compute RMS amplitude of a frame, clamped to [0, 1].
-     * Scaled up by 3x so typical speech maps to a visible mouth range.
-     */
-    private fun computeRms(frame: FloatArray): Float {
-        if (frame.isEmpty()) return 0f
-        var sum = 0f
-        for (sample in frame) {
-            sum += sample * sample
-        }
-        val rms = sqrt(sum / frame.size)
-        return (rms * 3f).coerceIn(0f, 1f)
-    }
-
-    private class GenerationStoppedException : RuntimeException("Generation stopped")
 }

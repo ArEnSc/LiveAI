@@ -4,27 +4,39 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.opengl.GLSurfaceView
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.example.liveai.R
+import com.example.liveai.agent.tts.PocketTtsProvider
+import com.example.liveai.live2d.LAppLive2DManager
+import com.example.liveai.live2d.LAppModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
- * Builds the TTS tab content: text input, generate/stop buttons, status.
+ * Builds the TTS tab content and owns the TTS lifecycle:
+ * model loading, speech playback, and lip-sync wiring.
  */
 class TtsTabBuilder(
     private val context: Context,
-    private val onGenerate: (String) -> Unit,
-    private val onStop: () -> Unit,
-    private val isSpeaking: () -> Boolean,
-    private val isInitialized: () -> Boolean
+    private val glSurfaceView: () -> GLSurfaceView?,
+    private val live2DManager: () -> LAppLive2DManager?
 ) {
+    companion object {
+        private const val TAG = "TtsTabBuilder"
+    }
+
     private val dp = context.resources.displayMetrics.density
     private val padH = (16 * dp).toInt()
     private val padV = (12 * dp).toInt()
@@ -37,15 +49,65 @@ class TtsTabBuilder(
     private var stopBtn: View? = null
     private var textInput: EditText? = null
 
-    fun updateStatus(text: String) {
+    private var ttsProvider: PocketTtsProvider? = null
+    private val ttsScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private fun updateStatus(text: String) {
         statusLabel?.text = text
     }
 
-    fun setButtonStates(speaking: Boolean) {
+    private fun setButtonStates(speaking: Boolean) {
         generateBtn?.isEnabled = !speaking
         generateBtn?.alpha = if (speaking) 0.4f else 1.0f
         stopBtn?.isEnabled = speaking
         stopBtn?.alpha = if (speaking) 1.0f else 0.4f
+    }
+
+    private fun speak(text: String) {
+        ttsScope.launch {
+            try {
+                val provider = ttsProvider ?: run {
+                    updateStatus("Loading models...")
+                    setButtonStates(speaking = true)
+                    val p = PocketTtsProvider(context)
+                    val loadTime = p.initialize()
+                    ttsProvider = p
+
+                    // Connect mouth volume to Live2D model
+                    val volumeSource = LAppModel.MouthVolumeSource { p.mouthVolume }
+                    glSurfaceView()?.queueEvent {
+                        live2DManager()?.setMouthVolumeSource(volumeSource)
+                    }
+
+                    updateStatus("Models loaded in ${loadTime}ms")
+                    p
+                }
+
+                setButtonStates(speaking = true)
+                updateStatus("Speaking...")
+
+                provider.speak(text)
+
+                setButtonStates(speaking = false)
+                updateStatus("Done")
+            } catch (e: Exception) {
+                Log.e(TAG, "TTS failed", e)
+                setButtonStates(speaking = false)
+                updateStatus("Error: ${e.message}")
+            }
+        }
+    }
+
+    private fun stop() {
+        ttsProvider?.stop()
+        setButtonStates(speaking = false)
+        updateStatus("Stopped")
+    }
+
+    fun release() {
+        ttsScope.cancel()
+        ttsProvider?.release()
+        ttsProvider = null
     }
 
     fun build(): LinearLayout {
@@ -106,7 +168,7 @@ class TtsTabBuilder(
         ) {
             val text = textInput?.text?.toString()?.trim()
             if (!text.isNullOrEmpty()) {
-                onGenerate(text)
+                speak(text)
             }
         }
         generateBtn = genBtn
@@ -120,7 +182,7 @@ class TtsTabBuilder(
             fillColor = Color.TRANSPARENT,
             textColor = textOnPanel,
             dp = dp
-        ) { onStop() }
+        ) { stop() }
         stopBtn = stpBtn
         stpBtn.isEnabled = false
         stpBtn.alpha = 0.4f

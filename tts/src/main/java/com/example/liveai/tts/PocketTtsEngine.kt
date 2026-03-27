@@ -7,8 +7,6 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import kotlin.math.sqrt
@@ -641,105 +639,11 @@ class PocketTtsEngine(private val context: Context) {
     }
 
     fun resampleTo24kHz(audio: FloatArray, sourceSampleRate: Int): FloatArray {
-        if (sourceSampleRate == SAMPLE_RATE) return audio
-
-        val ratio = SAMPLE_RATE.toDouble() / sourceSampleRate
-        val outputLen = (audio.size * ratio).toInt()
-        val output = FloatArray(outputLen)
-
-        for (i in 0 until outputLen) {
-            val srcPos = i / ratio
-            val srcIdx = srcPos.toInt()
-            val frac = (srcPos - srcIdx).toFloat()
-
-            output[i] = if (srcIdx + 1 < audio.size) {
-                audio[srcIdx] * (1f - frac) + audio[srcIdx + 1] * frac
-            } else {
-                audio[srcIdx.coerceAtMost(audio.size - 1)]
-            }
-        }
-
-        return output
+        return AudioUtils.resample(audio, sourceSampleRate, SAMPLE_RATE)
     }
 
     fun readWavFromAssets(assetPath: String): Pair<FloatArray, Int> {
-        val input = context.assets.open(assetPath)
-        val data = input.readBytes()
-        input.close()
-
-        val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
-
-        buf.position(0)
-        val riff = ByteArray(4)
-        buf.get(riff)
-        require(String(riff) == "RIFF") { "Not a RIFF file" }
-
-        buf.getInt()
-        val wave = ByteArray(4)
-        buf.get(wave)
-        require(String(wave) == "WAVE") { "Not a WAVE file" }
-
-        var sampleRate = 0
-        var numChannels = 0
-        var bitsPerSample = 0
-        var audioData: FloatArray? = null
-
-        while (buf.remaining() >= 8) {
-            val chunkId = ByteArray(4)
-            buf.get(chunkId)
-            val chunkSize = buf.getInt()
-            val chunkName = String(chunkId)
-
-            when (chunkName) {
-                "fmt " -> {
-                    val format = buf.getShort().toInt()
-                    numChannels = buf.getShort().toInt()
-                    sampleRate = buf.getInt()
-                    buf.getInt()
-                    buf.getShort()
-                    bitsPerSample = buf.getShort().toInt()
-                    val remaining = chunkSize - 16
-                    if (remaining > 0) buf.position(buf.position() + remaining)
-                }
-                "data" -> {
-                    val numSamples = chunkSize / (bitsPerSample / 8)
-                    val samples = FloatArray(numSamples)
-
-                    when (bitsPerSample) {
-                        16 -> {
-                            for (i in 0 until numSamples) {
-                                samples[i] = buf.getShort().toFloat() / 32768f
-                            }
-                        }
-                        32 -> {
-                            for (i in 0 until numSamples) {
-                                samples[i] = buf.getFloat()
-                            }
-                        }
-                        else -> throw IllegalArgumentException("Unsupported bits per sample: $bitsPerSample")
-                    }
-
-                    audioData = if (numChannels > 1) {
-                        val monoLen = samples.size / numChannels
-                        FloatArray(monoLen) { i ->
-                            var sum = 0f
-                            for (ch in 0 until numChannels) {
-                                sum += samples[i * numChannels + ch]
-                            }
-                            sum / numChannels
-                        }
-                    } else {
-                        samples
-                    }
-                }
-                else -> {
-                    buf.position(buf.position() + chunkSize)
-                }
-            }
-        }
-
-        requireNotNull(audioData) { "No audio data found in WAV file" }
-        return audioData to sampleRate
+        return AudioUtils.readWav(context.assets.open(assetPath))
     }
 
     fun release() {
