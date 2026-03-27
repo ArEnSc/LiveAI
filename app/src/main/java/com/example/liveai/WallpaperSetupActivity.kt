@@ -618,7 +618,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
 
         glSurfaceView?.setOnTouchListener { _, event ->
             // Interact tab: forward to zone touch handler
-            if (activeTabIndex == 3) {
+            if (activeTabIndex == 4) {
                 return@setOnTouchListener touchHandler?.onTouchEvent(event) == true
             }
             // Only Position tab (0) allows drag/scale
