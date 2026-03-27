@@ -62,6 +62,14 @@ class PocketTtsProvider(
     var mouthVolume: Float = 0f
         private set
 
+    /** Metrics from the most recent [speak] call. */
+    @Volatile
+    var lastMetrics: PocketTtsEngine.PerformanceMetrics? = null
+        private set
+
+    /** Access the underlying engine for tuning (lsdSteps, temperature). Null until initialized. */
+    val engineRef: PocketTtsEngine? get() = engine
+
     /**
      * Load ONNX models, tokenizer, and reference voice.
      * Safe to call multiple times — only the first call does work.
@@ -82,6 +90,9 @@ class PocketTtsProvider(
         val (rawAudio, sampleRate) = eng.readWavFromAssets(voiceAssetPath)
         val voice = eng.resampleTo24kHz(rawAudio, sampleRate)
         Log.i(TAG, "Voice loaded: ${voice.size} samples (${voice.size / 24000f}s)")
+
+        // Pre-encode voice now so generate() never has to
+        eng.preEncodeVoice(voice)
 
         engine = eng
         tokenizer = tok
@@ -223,6 +234,7 @@ class PocketTtsProvider(
             waitForPlaybackDrain(track, totalSamplesWritten)
         }
 
+        lastMetrics = result.metrics
         Log.i(TAG, "Spoke ${result.metrics.audioDurationSec}s in ${result.metrics.totalTimeMs}ms " +
             "(${String.format("%.2f", result.metrics.realtimeFactor)}x RT)")
     }
