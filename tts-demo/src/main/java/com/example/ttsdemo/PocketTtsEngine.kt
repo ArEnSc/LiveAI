@@ -31,22 +31,46 @@ class PocketTtsEngine(private val context: Context) {
         const val COND_DIM = 1024
         const val DEFAULT_TEMPERATURE = 0.7f
         const val DEFAULT_LSD_STEPS = 2
-        const val DEFAULT_EOS_THRESHOLD = -4.0f
+        const val DEFAULT_EOS_THRESHOLD = -3.0f
         const val DEFAULT_MAX_FRAMES = 500
-        const val DEFAULT_FRAMES_AFTER_EOS = 3
+        const val DEFAULT_FRAMES_AFTER_EOS = 1
     }
 
     private lateinit var env: OrtEnvironment
-    private lateinit var sessionOptions: OrtSession.SessionOptions
     private lateinit var textConditioner: OrtSession
     private lateinit var mimiEncoder: OrtSession
     private lateinit var flowLmMain: OrtSession
     private lateinit var flowLmFlow: OrtSession
     private lateinit var mimiDecoder: OrtSession
 
+    // Pre-allocated tensors reused every frame to avoid JNI alloc overhead
+    private lateinit var reusableEmptyText: OnnxTensor    // [1, 0, 1024] — constant
+    private val flowSeqBuffer = FloatArray(LATENT_DIM)    // reusable buffer for sequence input
+    private val flowXBuffer = FloatArray(LATENT_DIM)      // reusable buffer for flow x input
+    private val flowScalarS = floatArrayOf(0f)             // reusable [1,1] for s
+    private val flowScalarT = floatArrayOf(0f)             // reusable [1,1] for t
+
+    // Zero-copy state: hold previous OrtSession.Result alive so its output
+    // tensors (used as next-step state inputs) remain valid without copying.
+    private var flowLmPrevResult: OrtSession.Result? = null
+    private var mimiPrevResult: OrtSession.Result? = null
+
+    // Cached voice embeddings — mimi_encoder output for a given voiceAudio.
+    // Avoids re-encoding the same reference voice on every generate() call.
+    private var cachedVoiceAudio: FloatArray? = null
+    private var cachedVoiceEmbeddings: Array<FloatArray>? = null
+
     var temperature: Float = DEFAULT_TEMPERATURE
     var lsdSteps: Int = DEFAULT_LSD_STEPS
     var eosThreshold: Float = DEFAULT_EOS_THRESHOLD
+    var framesAfterEos: Int = DEFAULT_FRAMES_AFTER_EOS
+
+    /**
+     * Toggle XNNPACK for hot-path models (flow_lm_main, flow_lm_flow, mimi_decoder).
+     * Set before calling [loadModels]. XNNPACK accelerates FP32 ops but may add
+     * partitioning overhead for INT8 quantized models — benchmark with this off.
+     */
+    var useXnnpackForHotPath: Boolean = true
 
     data class PerformanceMetrics(
         val modelLoadTimeMs: Long = 0,
@@ -57,7 +81,10 @@ class PocketTtsEngine(private val context: Context) {
         val framesGenerated: Int = 0,
         val audioDurationSec: Float = 0f,
         val realtimeFactor: Float = 0f,
-        val peakMemoryMb: Float = 0f
+        val peakMemoryMb: Float = 0f,
+        val avgFlowLmMainMs: Float = 0f,
+        val avgFlowMatchMs: Float = 0f,
+        val avgMimiDecoderMs: Float = 0f
     )
 
     data class GenerationResult(
@@ -74,24 +101,61 @@ class PocketTtsEngine(private val context: Context) {
         val startTime = System.currentTimeMillis()
 
         env = OrtEnvironment.getEnvironment()
-        sessionOptions = OrtSession.SessionOptions().apply {
+
+        // Cold-path options: text_conditioner + mimi_encoder (run once per utterance)
+        val coldOptions = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(4)
             setInterOpNumThreads(1)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            try {
+                addXnnpack(mapOf("intra_op_num_threads" to "4"))
+                Log.i(TAG, "XNNPACK enabled for cold-path models")
+            } catch (e: Exception) {
+                Log.w(TAG, "XNNPACK not available for cold-path: ${e.message}")
+            }
+        }
+
+        // Hot-path options: flow_lm_main, flow_lm_flow, mimi_decoder (run every frame)
+        // Let XNNPACK manage its own threadpool; set ORT threads to 1 to avoid contention
+        val hotOptions = OrtSession.SessionOptions().apply {
+            if (useXnnpackForHotPath) {
+                setIntraOpNumThreads(1)
+                setInterOpNumThreads(1)
+                try {
+                    addXnnpack(mapOf("intra_op_num_threads" to "4"))
+                    Log.i(TAG, "XNNPACK enabled for hot-path models")
+                } catch (e: Exception) {
+                    Log.w(TAG, "XNNPACK not available for hot-path: ${e.message}")
+                    setIntraOpNumThreads(4)
+                }
+            } else {
+                setIntraOpNumThreads(4)
+                setInterOpNumThreads(1)
+                Log.i(TAG, "XNNPACK disabled for hot-path models (CPU EP only)")
+            }
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            addConfigEntry("session.intra_op.allow_spinning", "1")
         }
 
         // Extract all models to cache so we can use file-path sessions (memory-mapped)
         extractModelsToCacheIfNeeded()
 
         // Load all 5 models upfront to avoid per-generation load/unload overhead
-        textConditioner = loadSessionFromFile("text_conditioner.onnx")
-        mimiEncoder = loadSessionFromFile("mimi_encoder.onnx")
-        flowLmMain = loadSessionFromFile("flow_lm_main_int8.onnx")
-        flowLmFlow = loadSessionFromFile("flow_lm_flow_int8.onnx")
-        mimiDecoder = loadSessionFromFile("mimi_decoder_int8.onnx")
+        textConditioner = loadSessionFromFile("text_conditioner.onnx", coldOptions)
+        mimiEncoder = loadSessionFromFile("mimi_encoder.onnx", coldOptions)
+        flowLmMain = loadSessionFromFile("flow_lm_main_int8.onnx", hotOptions)
+        flowLmFlow = loadSessionFromFile("flow_lm_flow_int8.onnx", hotOptions)
+        mimiDecoder = loadSessionFromFile("mimi_decoder_int8.onnx", hotOptions)
+
+        // Pre-allocate the constant empty-text tensor used every frame
+        reusableEmptyText = OnnxTensor.createTensor(
+            env,
+            FloatBuffer.allocate(0),
+            longArrayOf(1, 0, COND_DIM.toLong())
+        )
 
         val elapsed = System.currentTimeMillis() - startTime
-        Log.i(TAG, "All 5 models loaded in ${elapsed}ms")
+        Log.i(TAG, "All 5 models loaded in ${elapsed}ms (XNNPACK hot-path=$useXnnpackForHotPath)")
 
         logModelInfo("text_conditioner", textConditioner)
         logModelInfo("mimi_encoder", mimiEncoder)
@@ -126,9 +190,9 @@ class PocketTtsEngine(private val context: Context) {
         }
     }
 
-    private fun loadSessionFromFile(filename: String): OrtSession {
+    private fun loadSessionFromFile(filename: String, options: OrtSession.SessionOptions): OrtSession {
         val modelPath = File(context.cacheDir, "onnx_models/$filename").absolutePath
-        return env.createSession(modelPath, sessionOptions)
+        return env.createSession(modelPath, options)
     }
 
     private fun logModelInfo(name: String, session: OrtSession) {
@@ -147,6 +211,7 @@ class PocketTtsEngine(private val context: Context) {
      * @param text Text to synthesize
      * @param tokenizer SentencePiece tokenizer
      * @param voiceAudio Reference voice audio as float array (mono, 24kHz)
+     * @param maxFrames Maximum frames to generate
      * @param onFrame Callback for each generated audio frame (for streaming)
      */
     fun generate(
@@ -165,14 +230,22 @@ class PocketTtsEngine(private val context: Context) {
             if (used > peakMemory) peakMemory = used
         }
 
-        // 1. Encode reference voice
+        // 1. Encode reference voice (cached if same audio)
         val voiceEncodeStart = System.currentTimeMillis()
-        val voiceEmbeddings = encodeVoice(voiceAudio)
+        val voiceEmbeddings = if (cachedVoiceAudio === voiceAudio && cachedVoiceEmbeddings != null) {
+            Log.i(TAG, "Voice embeddings cached — skipping mimi_encoder")
+            cachedVoiceEmbeddings!!
+        } else {
+            val emb = encodeVoice(voiceAudio)
+            cachedVoiceAudio = voiceAudio
+            cachedVoiceEmbeddings = emb
+            emb
+        }
         val voiceEncodeTime = System.currentTimeMillis() - voiceEncodeStart
-        Log.i(TAG, "Voice encoded in ${voiceEncodeTime}ms, shape: [1, ${voiceEmbeddings[0].size}, $COND_DIM]")
+        Log.i(TAG, "Voice encode step: ${voiceEncodeTime}ms")
         trackMemory()
 
-        // 2. Tokenize and condition text (load conditioner on-demand, release after)
+        // 2. Tokenize and condition text
         val textCondStart = System.currentTimeMillis()
         val preparedText = prepareText(text)
         val tokenIds = tokenizer.encode(preparedText)
@@ -184,6 +257,7 @@ class PocketTtsEngine(private val context: Context) {
 
         // 3. Initialize flow_lm_main state
         val flowState = initState(flowLmMain)
+        flowLmPrevResult = null
 
         // 4. Voice conditioning pass (populates KV-cache)
         conditionFlowLm(flowState, voiceEmbeddings = voiceEmbeddings)
@@ -195,20 +269,24 @@ class PocketTtsEngine(private val context: Context) {
 
         // 6. Initialize mimi_decoder state
         val mimiState = initState(mimiDecoder)
+        mimiPrevResult = null
 
         // 7. Autoregressive generation loop
         val genStart = System.currentTimeMillis()
         val allAudioFrames = mutableListOf<FloatArray>()
-        var currentInput = createNanTensor(floatArrayOf(Float.NaN).let {
-            FloatArray(LATENT_DIM) { Float.NaN }
-        }) // BOS = NaN-filled [1, 1, 32]
+        var currentInput = FloatArray(LATENT_DIM) { Float.NaN } // BOS = NaN-filled
 
         var eosStep: Int? = null
         var framesGenerated = 0
+        var totalFlowLmMs = 0L
+        var totalFlowMatchMs = 0L
+        var totalDecoderMs = 0L
 
         for (step in 0 until maxFrames) {
             // Run flow_lm_main
+            var t0 = System.nanoTime()
             val (conditioning, eosLogit) = runFlowLmMain(flowState, currentInput)
+            totalFlowLmMs += (System.nanoTime() - t0) / 1_000_000
             trackMemory()
 
             // Check EOS
@@ -216,17 +294,21 @@ class PocketTtsEngine(private val context: Context) {
                 eosStep = step
                 Log.i(TAG, "EOS detected at step $step (logit=$eosLogit)")
             }
-            if (eosStep != null && step >= eosStep + DEFAULT_FRAMES_AFTER_EOS) {
-                Log.i(TAG, "Stopping at step $step ($DEFAULT_FRAMES_AFTER_EOS frames after EOS)")
+            if (eosStep != null && step >= eosStep + framesAfterEos) {
+                Log.i(TAG, "Stopping at step $step ($framesAfterEos frames after EOS)")
                 break
             }
 
             // Flow matching (ODE solver)
+            t0 = System.nanoTime()
             val nextLatent = runFlowMatching(conditioning)
+            totalFlowMatchMs += (System.nanoTime() - t0) / 1_000_000
             trackMemory()
 
             // Decode audio frame
+            t0 = System.nanoTime()
             val audioFrame = runMimiDecoder(mimiState, nextLatent)
+            totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
             allAudioFrames.add(audioFrame)
             framesGenerated++
             trackMemory()
@@ -241,6 +323,12 @@ class PocketTtsEngine(private val context: Context) {
                 Log.d(TAG, "Step $step: generated ${audioFrame.size} samples")
             }
         }
+
+        // Clean up held results from zero-copy state
+        flowLmPrevResult?.close()
+        flowLmPrevResult = null
+        mimiPrevResult?.close()
+        mimiPrevResult = null
 
         val genTime = System.currentTimeMillis() - genStart
         val totalTime = System.currentTimeMillis() - totalStart
@@ -258,6 +346,7 @@ class PocketTtsEngine(private val context: Context) {
         val rtfx = if (totalTime > 0) audioDuration / (totalTime / 1000f) else 0f
         val peakMb = peakMemory / (1024f * 1024f)
 
+        val n = if (framesGenerated > 0) framesGenerated.toFloat() else 1f
         val metrics = PerformanceMetrics(
             voiceEncodeTimeMs = voiceEncodeTime,
             textConditionTimeMs = textCondTime,
@@ -266,27 +355,25 @@ class PocketTtsEngine(private val context: Context) {
             framesGenerated = framesGenerated,
             audioDurationSec = audioDuration,
             realtimeFactor = rtfx,
-            peakMemoryMb = peakMb
+            peakMemoryMb = peakMb,
+            avgFlowLmMainMs = totalFlowLmMs / n,
+            avgFlowMatchMs = totalFlowMatchMs / n,
+            avgMimiDecoderMs = totalDecoderMs / n
         )
 
         Log.i(TAG, "Generation complete: ${audioDuration}s audio in ${totalTime}ms (${rtfx}x realtime)")
+        Log.i(TAG, "Per-frame avg: flowLm=${metrics.avgFlowLmMainMs}ms, flowMatch=${metrics.avgFlowMatchMs}ms, decoder=${metrics.avgMimiDecoderMs}ms")
 
         return GenerationResult(audio, metrics)
     }
 
     // --- Helpers ---
 
-    /** Get the Nth output value from an OrtSession.Result */
     private fun OrtSession.Result.valueAt(index: Int): OnnxValue {
         val entries = this.toList()
         return entries[index].value
     }
 
-    /**
-     * Reshape a flat boolean array into a multi-dimensional Object array
-     * that OnnxTensor.createTensor can accept.
-     * ONNX Runtime Java requires Object arrays for boolean tensors.
-     */
     private fun reshape(flat: BooleanArray, shape: LongArray): Any {
         if (shape.size == 1) return flat
         return reshapeRecursive(flat, shape, 0, 0).first
@@ -325,7 +412,6 @@ class PocketTtsEngine(private val context: Context) {
         val result = mimiEncoder.run(mapOf("audio" to audioTensor))
         val outputTensor = result.valueAt(0) as OnnxTensor
 
-        // Output shape: [1, T', 1024]
         val shape = outputTensor.info.shape
         val flatData = outputTensor.floatBuffer
         val seqLen = shape[1].toInt()
@@ -367,10 +453,6 @@ class PocketTtsEngine(private val context: Context) {
         return embeddings
     }
 
-    /**
-     * Initialize state tensors for a stateful ONNX model.
-     * Reads input metadata to find state_* inputs and creates zero tensors.
-     */
     private fun initState(session: OrtSession): MutableMap<String, OnnxTensor> {
         val state = mutableMapOf<String, OnnxTensor>()
 
@@ -411,83 +493,41 @@ class PocketTtsEngine(private val context: Context) {
     }
 
     /**
-     * Update state map from model outputs.
-     * Maps out_state_N outputs back to state_N inputs.
+     * Zero-copy state update: point state map entries directly at the result's
+     * output tensors and keep the result alive until the next call replaces it.
+     * This avoids expensive per-frame buffer copies of the KV-cache.
      */
-    private fun updateState(
+    private fun updateStateZeroCopy(
         state: MutableMap<String, OnnxTensor>,
         result: OrtSession.Result,
-        session: OrtSession
-    ) {
+        session: OrtSession,
+        previousResult: OrtSession.Result?
+    ): OrtSession.Result {
+        previousResult?.close()
+
         val outputNames = session.outputInfo.keys.toList()
         for ((i, name) in outputNames.withIndex()) {
             if (name.startsWith("out_state_")) {
                 val idx = name.removePrefix("out_state_").toInt()
                 val stateKey = "state_$idx"
-                // Close old tensor
-                state[stateKey]?.close()
-                // Copy the output tensor (result will be closed)
-                val outputTensor = result.valueAt(i) as OnnxTensor
-                state[stateKey] = cloneTensor(outputTensor)
+                state[stateKey] = result.valueAt(i) as OnnxTensor
             }
         }
+
+        return result
     }
 
-    private fun cloneTensor(tensor: OnnxTensor): OnnxTensor {
-        val info = tensor.info
-        val shape = info.shape
-
-        return when (info.type) {
-            ai.onnxruntime.OnnxJavaType.FLOAT -> {
-                val srcBuffer = tensor.floatBuffer
-                val newBuffer = FloatBuffer.allocate(srcBuffer.remaining())
-                newBuffer.put(srcBuffer)
-                newBuffer.flip()
-                OnnxTensor.createTensor(env, newBuffer, shape)
-            }
-            ai.onnxruntime.OnnxJavaType.INT64 -> {
-                val srcBuffer = tensor.longBuffer
-                val newBuffer = LongBuffer.allocate(srcBuffer.remaining())
-                newBuffer.put(srcBuffer)
-                newBuffer.flip()
-                OnnxTensor.createTensor(env, newBuffer, shape)
-            }
-            ai.onnxruntime.OnnxJavaType.BOOL -> {
-                // Boolean tensors use getValue() which returns Object array
-                val value = tensor.value
-                OnnxTensor.createTensor(env, value)
-            }
-            ai.onnxruntime.OnnxJavaType.INT32 -> {
-                val srcBuffer = tensor.intBuffer
-                val newBuffer = java.nio.IntBuffer.allocate(srcBuffer.remaining())
-                newBuffer.put(srcBuffer)
-                newBuffer.flip()
-                OnnxTensor.createTensor(env, newBuffer, shape)
-            }
-            else -> {
-                Log.w(TAG, "cloneTensor: unhandled type ${info.type}, using getValue()")
-                OnnxTensor.createTensor(env, tensor.value)
-            }
-        }
-    }
-
-    /**
-     * Conditioning pass: feed voice or text embeddings into flow_lm_main
-     * to populate the KV-cache. Outputs (conditioning, eos) are ignored.
-     */
     private fun conditionFlowLm(
         state: MutableMap<String, OnnxTensor>,
         voiceEmbeddings: Array<FloatArray>? = null,
         textEmbeddings: Array<FloatArray>? = null
     ) {
-        // Empty sequence [1, 0, 32]
         val emptySeq = OnnxTensor.createTensor(
             env,
             FloatBuffer.allocate(0),
             longArrayOf(1, 0, LATENT_DIM.toLong())
         )
 
-        // Either voice or text embeddings, the other is empty [1, 0, 1024]
         val embeddings = voiceEmbeddings ?: textEmbeddings
             ?: throw IllegalArgumentException("Must provide voice or text embeddings")
 
@@ -508,99 +548,79 @@ class PocketTtsEngine(private val context: Context) {
         inputs.putAll(state)
 
         val result = flowLmMain.run(inputs)
-        updateState(state, result, flowLmMain)
+        flowLmPrevResult = updateStateZeroCopy(state, result, flowLmMain, flowLmPrevResult)
 
-        result.close()
         emptySeq.close()
         embTensor.close()
     }
 
-    /**
-     * Run one step of the AR loop: feed previous latent, get conditioning + EOS.
-     * Returns (conditioning [1, dim], eosLogit scalar).
-     */
     private fun runFlowLmMain(
         state: MutableMap<String, OnnxTensor>,
         latentInput: FloatArray
     ): Pair<FloatArray, Float> {
-        // Sequence input [1, 1, 32]
+        // Reuse pre-allocated buffer — copy input data into it
+        latentInput.copyInto(flowSeqBuffer)
         val seqTensor = OnnxTensor.createTensor(
             env,
-            FloatBuffer.wrap(latentInput),
+            FloatBuffer.wrap(flowSeqBuffer),
             longArrayOf(1, 1, LATENT_DIM.toLong())
-        )
-
-        // Empty text embeddings [1, 0, 1024]
-        val emptyText = OnnxTensor.createTensor(
-            env,
-            FloatBuffer.allocate(0),
-            longArrayOf(1, 0, COND_DIM.toLong())
         )
 
         val inputs = mutableMapOf<String, OnnxTensor>(
             "sequence" to seqTensor,
-            "text_embeddings" to emptyText
+            "text_embeddings" to reusableEmptyText
         )
         inputs.putAll(state)
 
         val result = flowLmMain.run(inputs)
 
-        // Output 0: conditioning [1, 1, dim] or [1, dim]
+        // Read outputs before handing result to zero-copy state update
         val condTensor = result.valueAt(0) as OnnxTensor
         val condBuffer = condTensor.floatBuffer
         val condData = FloatArray(condBuffer.remaining())
         condBuffer.get(condData)
 
-        // Output 1: eos_logit [1, 1]
         val eosTensor = result.valueAt(1) as OnnxTensor
         val eosLogit = eosTensor.floatBuffer.get(0)
 
-        updateState(state, result, flowLmMain)
+        flowLmPrevResult = updateStateZeroCopy(state, result, flowLmMain, flowLmPrevResult)
 
-        result.close()
         seqTensor.close()
-        emptyText.close()
 
         return condData to eosLogit
     }
 
-    /**
-     * Run the ODE solver (LSD decode) using flow_lm_flow.
-     * Euler integration with configurable steps.
-     */
+    // Persistent RNG avoids re-seeding each frame
+    private val rng = java.util.Random()
+
     private fun runFlowMatching(conditioning: FloatArray): FloatArray {
         val dt = 1.0f / lsdSteps
         val std = if (temperature > 0) sqrt(temperature.toDouble()).toFloat() else 0f
 
-        // Sample initial noise
-        val rng = java.util.Random()
-        val x = FloatArray(LATENT_DIM) {
-            if (std > 0) (rng.nextGaussian() * std).toFloat() else 0f
+        // Reuse pre-allocated buffer for x
+        for (i in 0 until LATENT_DIM) {
+            flowXBuffer[i] = if (std > 0) (rng.nextGaussian() * std).toFloat() else 0f
         }
 
-        for (j in 0 until lsdSteps) {
-            val s = j.toFloat() / lsdSteps
-            val t = s + dt
+        // Pre-wrap conditioning once (same data for all LSD steps)
+        val cTensor = OnnxTensor.createTensor(
+            env,
+            FloatBuffer.wrap(conditioning),
+            longArrayOf(1, conditioning.size.toLong())
+        )
 
-            val cTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(conditioning),
-                longArrayOf(1, conditioning.size.toLong())
-            )
+        for (j in 0 until lsdSteps) {
+            flowScalarS[0] = j.toFloat() / lsdSteps
+            flowScalarT[0] = flowScalarS[0] + dt
+
             val sTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(floatArrayOf(s)),
-                longArrayOf(1, 1)
+                env, FloatBuffer.wrap(flowScalarS), longArrayOf(1, 1)
             )
             val tTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(floatArrayOf(t)),
-                longArrayOf(1, 1)
+                env, FloatBuffer.wrap(flowScalarT), longArrayOf(1, 1)
             )
             val xTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(x),
-                longArrayOf(1, LATENT_DIM.toLong())
+                env, FloatBuffer.wrap(flowXBuffer), longArrayOf(1, LATENT_DIM.toLong())
             )
 
             val result = flowLmFlow.run(mapOf(
@@ -612,22 +632,21 @@ class PocketTtsEngine(private val context: Context) {
 
             val flowDir = (result.valueAt(0) as OnnxTensor).floatBuffer
             for (i in 0 until LATENT_DIM) {
-                x[i] += flowDir.get(i) * dt
+                flowXBuffer[i] += flowDir.get(i) * dt
             }
 
             result.close()
-            cTensor.close()
             sTensor.close()
             tTensor.close()
             xTensor.close()
         }
 
-        return x
+        cTensor.close()
+
+        // Return a copy since flowXBuffer will be overwritten next frame
+        return flowXBuffer.copyOf()
     }
 
-    /**
-     * Decode one latent frame to audio using mimi_decoder.
-     */
     private fun runMimiDecoder(
         state: MutableMap<String, OnnxTensor>,
         latent: FloatArray
@@ -643,35 +662,25 @@ class PocketTtsEngine(private val context: Context) {
 
         val result = mimiDecoder.run(inputs)
 
+        // Read audio output before handing result to zero-copy state update
         val audioTensor = result.valueAt(0) as OnnxTensor
         val audioBuffer = audioTensor.floatBuffer
         val audioData = FloatArray(audioBuffer.remaining())
         audioBuffer.get(audioData)
 
-        updateState(state, result, mimiDecoder)
+        mimiPrevResult = updateStateZeroCopy(state, result, mimiDecoder, mimiPrevResult)
 
-        result.close()
         latentTensor.close()
 
         return audioData
     }
 
-    /**
-     * Create a NaN-filled latent for BOS (beginning of sequence).
-     */
-    private fun createNanTensor(values: FloatArray): FloatArray = values
-
-    /**
-     * Prepare text for tokenization (matches Python preprocessing).
-     */
     private fun prepareText(text: String): String {
         var result = text.trim()
         if (result.isEmpty()) return result
 
-        // Capitalize first letter
         result = result.replaceFirstChar { it.uppercase() }
 
-        // Add period if ends with alphanumeric
         if (result.last().isLetterOrDigit()) {
             result = "$result."
         }
@@ -795,6 +804,11 @@ class PocketTtsEngine(private val context: Context) {
     }
 
     fun release() {
+        flowLmPrevResult?.close()
+        flowLmPrevResult = null
+        mimiPrevResult?.close()
+        mimiPrevResult = null
+        if (this::reusableEmptyText.isInitialized) reusableEmptyText.close()
         if (this::textConditioner.isInitialized) textConditioner.close()
         if (this::mimiEncoder.isInitialized) mimiEncoder.close()
         if (this::flowLmMain.isInitialized) flowLmMain.close()

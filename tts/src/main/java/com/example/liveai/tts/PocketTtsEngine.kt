@@ -29,9 +29,9 @@ class PocketTtsEngine(private val context: Context) {
         const val COND_DIM = 1024
         const val DEFAULT_TEMPERATURE = 0.7f
         const val DEFAULT_LSD_STEPS = 1
-        const val DEFAULT_EOS_THRESHOLD = -4.0f
+        const val DEFAULT_EOS_THRESHOLD = -3.0f
         const val DEFAULT_MAX_FRAMES = 500
-        const val DEFAULT_FRAMES_AFTER_EOS = 3
+        const val DEFAULT_FRAMES_AFTER_EOS = 1
     }
 
     private lateinit var env: OrtEnvironment
@@ -61,6 +61,14 @@ class PocketTtsEngine(private val context: Context) {
     var temperature: Float = DEFAULT_TEMPERATURE
     var lsdSteps: Int = DEFAULT_LSD_STEPS
     var eosThreshold: Float = DEFAULT_EOS_THRESHOLD
+    var framesAfterEos: Int = DEFAULT_FRAMES_AFTER_EOS
+
+    /**
+     * Toggle XNNPACK for hot-path models (flow_lm_main, flow_lm_flow, mimi_decoder).
+     * Set before calling [loadModels]. XNNPACK accelerates FP32 ops but may add
+     * partitioning overhead for INT8 quantized models — benchmark with this off.
+     */
+    var useXnnpackForHotPath: Boolean = true
 
     data class PerformanceMetrics(
         val modelLoadTimeMs: Long = 0,
@@ -71,7 +79,10 @@ class PocketTtsEngine(private val context: Context) {
         val framesGenerated: Int = 0,
         val audioDurationSec: Float = 0f,
         val realtimeFactor: Float = 0f,
-        val peakMemoryMb: Float = 0f
+        val peakMemoryMb: Float = 0f,
+        val avgFlowLmMainMs: Float = 0f,
+        val avgFlowMatchMs: Float = 0f,
+        val avgMimiDecoderMs: Float = 0f
     )
 
     data class GenerationResult(
@@ -105,15 +116,22 @@ class PocketTtsEngine(private val context: Context) {
         // Hot-path options: flow_lm_main, flow_lm_flow, mimi_decoder (run every frame)
         // Let XNNPACK manage its own threadpool; set ORT threads to 1 to avoid contention
         val hotOptions = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(1)
-            setInterOpNumThreads(1)
-            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            try {
-                addXnnpack(mapOf("intra_op_num_threads" to "4"))
-                Log.i(TAG, "XNNPACK enabled for hot-path models")
-            } catch (e: Exception) {
-                Log.w(TAG, "XNNPACK not available for hot-path: ${e.message}")
+            if (useXnnpackForHotPath) {
+                setIntraOpNumThreads(1)
+                setInterOpNumThreads(1)
+                try {
+                    addXnnpack(mapOf("intra_op_num_threads" to "4"))
+                    Log.i(TAG, "XNNPACK enabled for hot-path models")
+                } catch (e: Exception) {
+                    Log.w(TAG, "XNNPACK not available for hot-path: ${e.message}")
+                    setIntraOpNumThreads(4)
+                }
+            } else {
+                setIntraOpNumThreads(4)
+                setInterOpNumThreads(1)
+                Log.i(TAG, "XNNPACK disabled for hot-path models (CPU EP only)")
             }
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             addConfigEntry("session.intra_op.allow_spinning", "1")
         }
 
@@ -260,6 +278,9 @@ class PocketTtsEngine(private val context: Context) {
 
         var eosStep: Int? = null
         var framesGenerated = 0
+        var totalFlowLmMs = 0L
+        var totalFlowMatchMs = 0L
+        var totalDecoderMs = 0L
 
         for (step in 0 until maxFrames) {
             // Check cancellation
@@ -269,7 +290,9 @@ class PocketTtsEngine(private val context: Context) {
             }
 
             // Run flow_lm_main
+            var t0 = System.nanoTime()
             val (conditioning, eosLogit) = runFlowLmMain(flowState, currentInput)
+            totalFlowLmMs += (System.nanoTime() - t0) / 1_000_000
             trackMemory()
 
             // Check EOS
@@ -277,17 +300,21 @@ class PocketTtsEngine(private val context: Context) {
                 eosStep = step
                 Log.i(TAG, "EOS detected at step $step (logit=$eosLogit)")
             }
-            if (eosStep != null && step >= eosStep + DEFAULT_FRAMES_AFTER_EOS) {
-                Log.i(TAG, "Stopping at step $step ($DEFAULT_FRAMES_AFTER_EOS frames after EOS)")
+            if (eosStep != null && step >= eosStep + framesAfterEos) {
+                Log.i(TAG, "Stopping at step $step ($framesAfterEos frames after EOS)")
                 break
             }
 
             // Flow matching (ODE solver)
+            t0 = System.nanoTime()
             val nextLatent = runFlowMatching(conditioning)
+            totalFlowMatchMs += (System.nanoTime() - t0) / 1_000_000
             trackMemory()
 
             // Decode audio frame
+            t0 = System.nanoTime()
             val audioFrame = runMimiDecoder(mimiState, nextLatent)
+            totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
             allAudioFrames.add(audioFrame)
             framesGenerated++
             trackMemory()
@@ -325,6 +352,7 @@ class PocketTtsEngine(private val context: Context) {
         val rtfx = if (totalTime > 0) audioDuration / (totalTime / 1000f) else 0f
         val peakMb = peakMemory / (1024f * 1024f)
 
+        val n = if (framesGenerated > 0) framesGenerated.toFloat() else 1f
         val metrics = PerformanceMetrics(
             voiceEncodeTimeMs = voiceEncodeTime,
             textConditionTimeMs = textCondTime,
@@ -333,7 +361,10 @@ class PocketTtsEngine(private val context: Context) {
             framesGenerated = framesGenerated,
             audioDurationSec = audioDuration,
             realtimeFactor = rtfx,
-            peakMemoryMb = peakMb
+            peakMemoryMb = peakMb,
+            avgFlowLmMainMs = totalFlowLmMs / n,
+            avgFlowMatchMs = totalFlowMatchMs / n,
+            avgMimiDecoderMs = totalDecoderMs / n
         )
 
         Log.i(TAG, "Generation complete: ${audioDuration}s audio in ${totalTime}ms (${rtfx}x realtime)")

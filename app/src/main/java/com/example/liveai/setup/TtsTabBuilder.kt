@@ -69,6 +69,14 @@ class TtsTabBuilder(
     // Param labels
     private var lsdLabel: TextView? = null
     private var tempLabel: TextView? = null
+    private var eosLabel: TextView? = null
+    private var framesAfterEosLabel: TextView? = null
+
+    // Per-frame metrics
+    private var avgFlowLmLabel: TextView? = null
+    private var avgFlowMatchLabel: TextView? = null
+    private var avgDecoderLabel: TextView? = null
+    private var avgTotalFrameLabel: TextView? = null
 
     // Log
     private var logContainer: LinearLayout? = null
@@ -133,7 +141,7 @@ class TtsTabBuilder(
                 clearLog()
                 appendLog("Text: \"$text\"")
                 val eng = provider.engineRef
-                appendLog("LSD steps: ${eng?.lsdSteps}, Temp: ${eng?.temperature}")
+                appendLog("LSD: ${eng?.lsdSteps}, Temp: ${eng?.temperature}, EOS: ${eng?.eosThreshold}")
                 appendLog("Mode: STREAMING")
 
                 setButtonStates(speaking = true)
@@ -190,6 +198,12 @@ class TtsTabBuilder(
         framesLabel?.text = "${m.framesGenerated}"
         audioDurLabel?.text = "${String.format("%.2f", m.audioDurationSec)}s"
         peakMemLabel?.text = "${String.format("%.1f", m.peakMemoryMb)} MB"
+
+        val totalPerFrame = m.avgFlowLmMainMs + m.avgFlowMatchMs + m.avgMimiDecoderMs
+        avgFlowLmLabel?.text = "${String.format("%.1f", m.avgFlowLmMainMs)}ms"
+        avgFlowMatchLabel?.text = "${String.format("%.1f", m.avgFlowMatchMs)}ms"
+        avgDecoderLabel?.text = "${String.format("%.1f", m.avgMimiDecoderMs)}ms"
+        avgTotalFrameLabel?.text = "${String.format("%.1f", totalPerFrame)}ms"
     }
 
     private fun showMemory() {
@@ -254,7 +268,23 @@ class TtsTabBuilder(
             tempLabel?.text = "Temp: ${String.format("%.2f", value)}"
         }
         tempLabel = tempRow.first
-        content.addView(tempRow.second, marginLp(bottom = 10))
+        content.addView(tempRow.second, marginLp(bottom = 4))
+
+        // EOS Threshold slider
+        val eosRow = makeSliderRow("EOS Threshold", -3.0f, -6f, 0f, 60) { value ->
+            ttsProvider?.engineRef?.eosThreshold = value
+            eosLabel?.text = "EOS Threshold: ${String.format("%.1f", value)}"
+        }
+        eosLabel = eosRow.first
+        content.addView(eosRow.second, marginLp(bottom = 4))
+
+        // Frames After EOS slider
+        val faeRow = makeSliderRow("Frames After EOS", 1f, 0f, 5f, 5) { value ->
+            ttsProvider?.engineRef?.framesAfterEos = value.toInt()
+            framesAfterEosLabel?.text = "Frames After EOS: ${value.toInt()}"
+        }
+        framesAfterEosLabel = faeRow.first
+        content.addView(faeRow.second, marginLp(bottom = 10))
 
         // --- Buttons ---
         val btnRow = LinearLayout(context).apply {
@@ -302,6 +332,12 @@ class TtsTabBuilder(
         framesLabel = addMetricRow(metricsCard, "Frames")
         audioDurLabel = addMetricRow(metricsCard, "Audio duration")
         peakMemLabel = addMetricRow(metricsCard, "Peak memory")
+
+        metricsCard.addView(makeBoldLabel("Per-Frame Avg", size = 11f))
+        avgFlowLmLabel = addMetricRow(metricsCard, "flow_lm_main")
+        avgFlowMatchLabel = addMetricRow(metricsCard, "flow_lm_flow")
+        avgDecoderLabel = addMetricRow(metricsCard, "mimi_decoder")
+        avgTotalFrameLabel = addMetricRow(metricsCard, "Total/frame")
 
         content.addView(metricsCard, marginLp(bottom = 8))
 

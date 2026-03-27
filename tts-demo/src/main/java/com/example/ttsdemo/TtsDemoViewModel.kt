@@ -47,6 +47,9 @@ sealed interface TtsDemoUiEvent {
     data object SaveWav : TtsDemoUiEvent
     data class LsdStepsChanged(val steps: Int) : TtsDemoUiEvent
     data class TemperatureChanged(val temp: Float) : TtsDemoUiEvent
+    data class EosThresholdChanged(val threshold: Float) : TtsDemoUiEvent
+    data class FramesAfterEosChanged(val frames: Int) : TtsDemoUiEvent
+    data class XnnpackToggled(val enabled: Boolean) : TtsDemoUiEvent
 }
 
 class TtsDemoViewModel(application: Application) : AndroidViewModel(application) {
@@ -81,6 +84,53 @@ class TtsDemoViewModel(application: Application) : AndroidViewModel(application)
             }
             is TtsDemoUiEvent.TemperatureChanged -> {
                 engine?.temperature = event.temp
+            }
+            is TtsDemoUiEvent.EosThresholdChanged -> {
+                engine?.eosThreshold = event.threshold
+            }
+            is TtsDemoUiEvent.FramesAfterEosChanged -> {
+                engine?.framesAfterEos = event.frames
+            }
+            is TtsDemoUiEvent.XnnpackToggled -> {
+                // Requires model reload to take effect
+                reloadWithXnnpack(event.enabled)
+            }
+        }
+    }
+
+    private fun reloadWithXnnpack(enabled: Boolean) {
+        val state = _uiState.value
+        if (state !is TtsDemoUiState.Ready || state.isGenerating) return
+
+        engine?.release()
+        engine = null
+
+        _uiState.value = TtsDemoUiState.Loading(
+            if (enabled) "Reloading models with XNNPACK..."
+            else "Reloading models without XNNPACK (CPU EP only)..."
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val eng = PocketTtsEngine(context)
+                eng.useXnnpackForHotPath = enabled
+                val loadTime = eng.loadModels()
+                engine = eng
+
+                val memInfo = getMemoryInfo(context)
+                _uiState.value = TtsDemoUiState.Ready(
+                    generationLog = listOf(
+                        "Models reloaded in ${loadTime}ms",
+                        "XNNPACK hot-path: $enabled",
+                        "Ready to generate!"
+                    ),
+                    systemMemoryMb = memInfo.first,
+                    appMemoryMb = memInfo.second
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to reload engine", e)
+                _uiState.value = TtsDemoUiState.Error("Failed to reload: ${e.message}")
             }
         }
     }

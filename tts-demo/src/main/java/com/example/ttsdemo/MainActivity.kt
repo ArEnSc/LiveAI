@@ -27,12 +27,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Switch
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -216,6 +218,9 @@ private fun ParameterControls(
 ) {
     var lsdSteps by remember { mutableIntStateOf(PocketTtsEngine.DEFAULT_LSD_STEPS) }
     var temperature by remember { mutableFloatStateOf(PocketTtsEngine.DEFAULT_TEMPERATURE) }
+    var eosThreshold by remember { mutableFloatStateOf(PocketTtsEngine.DEFAULT_EOS_THRESHOLD) }
+    var framesAfterEos by remember { mutableIntStateOf(PocketTtsEngine.DEFAULT_FRAMES_AFTER_EOS) }
+    var xnnpackEnabled by remember { mutableStateOf(true) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -250,6 +255,45 @@ private fun ParameterControls(
                 valueRange = 0f..1.5f,
                 enabled = enabled
             )
+
+            Text("EOS Threshold: ${String.format("%.1f", eosThreshold)}", fontSize = 12.sp)
+            Slider(
+                value = eosThreshold,
+                onValueChange = {
+                    eosThreshold = it
+                    onEvent(TtsDemoUiEvent.EosThresholdChanged(eosThreshold))
+                },
+                valueRange = -6f..0f,
+                enabled = enabled
+            )
+
+            Text("Frames After EOS: $framesAfterEos", fontSize = 12.sp)
+            Slider(
+                value = framesAfterEos.toFloat(),
+                onValueChange = {
+                    framesAfterEos = it.toInt()
+                    onEvent(TtsDemoUiEvent.FramesAfterEosChanged(framesAfterEos))
+                },
+                valueRange = 0f..5f,
+                steps = 4,
+                enabled = enabled
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("XNNPACK (hot-path)", fontSize = 12.sp)
+                Switch(
+                    checked = xnnpackEnabled,
+                    onCheckedChange = {
+                        xnnpackEnabled = it
+                        onEvent(TtsDemoUiEvent.XnnpackToggled(it))
+                    },
+                    enabled = enabled
+                )
+            }
         }
     }
 }
@@ -274,6 +318,16 @@ private fun MetricsCard(metrics: PocketTtsEngine.PerformanceMetrics) {
             MetricRow("Audio duration", "${String.format("%.2f", metrics.audioDurationSec)}s")
             MetricRow("Realtime factor", "${String.format("%.2f", metrics.realtimeFactor)}x")
             MetricRow("Peak memory", "${String.format("%.1f", metrics.peakMemoryMb)} MB")
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Per-Frame Breakdown (avg)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+
+            val totalPerFrame = metrics.avgFlowLmMainMs + metrics.avgFlowMatchMs + metrics.avgMimiDecoderMs
+            MetricRow("flow_lm_main", "${String.format("%.1f", metrics.avgFlowLmMainMs)}ms")
+            MetricRow("flow_lm_flow", "${String.format("%.1f", metrics.avgFlowMatchMs)}ms")
+            MetricRow("mimi_decoder", "${String.format("%.1f", metrics.avgMimiDecoderMs)}ms")
+            MetricRow("Total/frame", "${String.format("%.1f", totalPerFrame)}ms")
         }
     }
 }
