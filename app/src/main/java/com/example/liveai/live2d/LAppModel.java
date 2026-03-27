@@ -18,6 +18,7 @@ import com.live2d.sdk.cubism.framework.rendering.CubismRenderer;
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid;
 
 import com.example.liveai.audio.AudioDrivenMotion;
+import com.example.liveai.gyroscope.GyroscopeDrivenMotion;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,6 +35,7 @@ public class LAppModel extends CubismUserModel {
     private float userTimeSeconds;
 
     private AudioDrivenMotion audioDrivenMotion;
+    private GyroscopeDrivenMotion gyroscopeDrivenMotion;
     private Map<String, Float> parameterOverrides = new HashMap<>();
 
     private final List<CubismId> eyeBlinkIds = new ArrayList<>();
@@ -101,6 +103,10 @@ public class LAppModel extends CubismUserModel {
 
     public void setAudioDrivenMotion(AudioDrivenMotion motion) {
         this.audioDrivenMotion = motion;
+    }
+
+    public void setGyroscopeDrivenMotion(GyroscopeDrivenMotion motion) {
+        this.gyroscopeDrivenMotion = motion;
     }
 
     public void setParameterOverrides(Map<String, Float> overrides) {
@@ -232,6 +238,10 @@ public class LAppModel extends CubismUserModel {
 
         if (audioDrivenMotion != null) {
             audioDrivenMotion.update(model, deltaTimeSeconds);
+        }
+
+        if (gyroscopeDrivenMotion != null) {
+            gyroscopeDrivenMotion.update(model, deltaTimeSeconds);
         }
 
         model.update();

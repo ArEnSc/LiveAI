@@ -5,6 +5,8 @@ import com.example.liveai.FilterSettings
 import com.example.liveai.audio.AudioDrivenMotion
 import com.example.liveai.audio.AudioMotionConfig
 import com.example.liveai.audio.AudioVolumeSource
+import com.example.liveai.gyroscope.GyroscopeDrivenMotion
+import com.example.liveai.gyroscope.GyroscopeTiltSource
 
 /**
  * Encapsulates the common Live2D setup shared between OverlayService,
@@ -14,7 +16,9 @@ data class Live2DSession(
     val textureManager: LAppTextureManager,
     val manager: LAppLive2DManager,
     val audioSource: AudioVolumeSource,
-    val audioMotion: AudioDrivenMotion
+    val audioMotion: AudioDrivenMotion,
+    val tiltSource: GyroscopeTiltSource,
+    val gyroscopeMotion: GyroscopeDrivenMotion
 )
 
 object Live2DSessionFactory {
@@ -41,10 +45,17 @@ object Live2DSessionFactory {
         )
         manager.setAudioDrivenMotion(audioMotion)
 
-        return Live2DSession(textureManager, manager, audioSource, audioMotion)
+        val tiltSource = GyroscopeTiltSource(context)
+        tiltSource.start()
+
+        val gyroscopeMotion = GyroscopeDrivenMotion(tiltSource)
+        manager.setGyroscopeDrivenMotion(gyroscopeMotion)
+
+        return Live2DSession(textureManager, manager, audioSource, audioMotion, tiltSource, gyroscopeMotion)
     }
 
     fun destroy(session: Live2DSession) {
+        session.tiltSource.stop()
         session.audioSource.stop()
         session.manager.releaseModel()
     }

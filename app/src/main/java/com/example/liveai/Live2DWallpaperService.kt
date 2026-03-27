@@ -24,6 +24,7 @@ import com.example.liveai.live2d.GlStateGuard
 import com.example.liveai.live2d.ModelConfig
 import com.example.liveai.live2d.PostProcessFilter
 import com.example.liveai.live2d.toFloatBuffer
+import com.example.liveai.gyroscope.loadGyroMotionConfig
 import com.example.liveai.interaction.TouchInteractionHandler
 import com.example.liveai.interaction.ZoneRepository
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid
@@ -248,6 +249,9 @@ class Live2DWallpaperService : WallpaperService() {
             Log.d(TAG, "[$engineId] Settings: scale=$scale offX=$offX offY=$offY")
 
             FilterSettings.loadInto(this@Live2DWallpaperService, postProcess)
+
+            session?.gyroscopeMotion?.config =
+                loadGyroMotionConfig(this@Live2DWallpaperService)
         }
 
         private fun initializeRendering() {

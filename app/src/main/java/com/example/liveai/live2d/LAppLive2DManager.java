@@ -3,6 +3,7 @@ package com.example.liveai.live2d;
 import android.util.Log;
 
 import com.example.liveai.audio.AudioDrivenMotion;
+import com.example.liveai.gyroscope.GyroscopeDrivenMotion;
 import com.live2d.sdk.cubism.framework.id.CubismId;
 import com.live2d.sdk.cubism.framework.math.CubismMatrix44;
 import com.live2d.sdk.cubism.framework.model.CubismModel;
@@ -52,11 +53,19 @@ public class LAppLive2DManager implements InteractionTarget {
     }
 
     private AudioDrivenMotion audioDrivenMotion;
+    private GyroscopeDrivenMotion gyroscopeDrivenMotion;
 
     public void setAudioDrivenMotion(AudioDrivenMotion motion) {
         this.audioDrivenMotion = motion;
         if (model != null) {
             model.setAudioDrivenMotion(motion);
+        }
+    }
+
+    public void setGyroscopeDrivenMotion(GyroscopeDrivenMotion motion) {
+        this.gyroscopeDrivenMotion = motion;
+        if (model != null) {
+            model.setGyroscopeDrivenMotion(motion);
         }
     }
 
@@ -68,6 +77,9 @@ public class LAppLive2DManager implements InteractionTarget {
 
         if (audioDrivenMotion != null) {
             model.setAudioDrivenMotion(audioDrivenMotion);
+        }
+        if (gyroscopeDrivenMotion != null) {
+            model.setGyroscopeDrivenMotion(gyroscopeDrivenMotion);
         }
         if (!parameterOverrides.isEmpty()) {
             model.setParameterOverrides(parameterOverrides);

@@ -42,8 +42,13 @@ import com.example.liveai.live2d.PostProcessFilter
 import com.example.liveai.interaction.TouchInteractionHandler
 import com.example.liveai.interaction.ZoneEditorController
 import com.example.liveai.interaction.ZoneRepository
+import com.example.liveai.gyroscope.GyroMotionConfig
+import com.example.liveai.gyroscope.GyroscopeDrivenMotion
+import com.example.liveai.gyroscope.loadGyroMotionConfig
+import com.example.liveai.gyroscope.save
 import com.example.liveai.setup.AudioTabBuilder
 import com.example.liveai.setup.EffectsTabBuilder
+import com.example.liveai.setup.GyroscopeTabBuilder
 import com.example.liveai.setup.ParameterTabBuilder
 import com.example.liveai.setup.PositionTabBuilder
 import com.example.liveai.setup.SetupUiHelpers
@@ -80,6 +85,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var positionTab: PositionTabBuilder? = null
     private var effectsTab: EffectsTabBuilder? = null
     private var audioTab: AudioTabBuilder? = null
+    private var gyroscopeTab: GyroscopeTabBuilder? = null
     private var parameterTab: ParameterTabBuilder? = null
 
     private var modelScale = 1.0f
@@ -88,6 +94,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioMotionEnabled = true
     private var audioMotionIntensity = 1.0f
     private var audioMotionSpeed = 1.0f
+    private lateinit var gyroConfig: GyroMotionConfig
+    private var gyroscopeDrivenMotion: GyroscopeDrivenMotion? = null
     private var rootLayout: FrameLayout? = null
     private var zoneEditorController: ZoneEditorController? = null
     private var touchHandler: TouchInteractionHandler? = null
@@ -113,6 +121,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         audioMotionEnabled = filterPrefs.getBoolean(FilterSettings.KEY_AUDIO_MOTION_ENABLED, true)
         audioMotionIntensity = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_INTENSITY, 1.0f)
         audioMotionSpeed = filterPrefs.getFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, 1.0f)
+        gyroConfig = loadGyroMotionConfig(this)
 
         // Load saved parameter overrides
         val paramPrefs = getSharedPreferences(PARAM_OVERRIDES_PREFS, Context.MODE_PRIVATE)
@@ -225,7 +234,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             panel.visibility = View.GONE
             hintLabel?.text = when (activeTabIndex) {
                 0 -> "Drag to move  |  Pinch to zoom  \u2022  Tap to show menu"
-                3 -> "Drag zones to interact  \u2022  Tap to show menu"
+                4 -> "Drag zones to interact  \u2022  Tap to show menu"
                 else -> "Tap to show menu"
             }
         } else {
@@ -237,7 +246,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private fun updateHintForTab(index: Int) {
         hintLabel?.text = when (index) {
             0 -> "Drag to move  |  Pinch to zoom  \u2022  Tap to hide menu"
-            3 -> "Drag zones to interact  \u2022  Tap to hide menu"
+            4 -> "Drag zones to interact  \u2022  Tap to hide menu"
             else -> "Tap to hide menu"
         }
     }
@@ -289,7 +298,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         })
 
         // --- Tab bar ---
-        val tabNames = listOf("Position", "Effects", "Audio", "Interact", "Params")
+        val tabNames = listOf("Position", "Effects", "Audio", "Gyro", "Interact", "Params")
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -308,7 +317,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         val tabContents = mutableListOf<LinearLayout>()
 
         fun selectTab(index: Int) {
-            if (activeTabIndex == 3 && index != 3) {
+            if (activeTabIndex == 4 && index != 4) {
                 val zones = ZoneRepository.loadZones(this@WallpaperSetupActivity)
                 val allParamIds = zones.flatMap { zone ->
                     zone.bindings.map { it.paramId }
@@ -340,7 +349,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                 updateHintForTab(index)
             }
 
-            if (index == 3) {
+            if (index == 4) {
                 rebuildTouchHandler()
             }
 
@@ -442,6 +451,20 @@ class WallpaperSetupActivity : AppCompatActivity() {
         val audioContent = audioBuilder.build()
         tabContents.add(audioContent)
         contentHost.addView(audioContent)
+
+        // ===== TAB: Gyroscope =====
+        val gyroBuilder = GyroscopeTabBuilder(
+            context = this,
+            initialConfig = gyroConfig,
+            onConfigChanged = { config ->
+                gyroConfig = config
+                gyroscopeDrivenMotion?.config = config
+            }
+        )
+        gyroscopeTab = gyroBuilder
+        val gyroContent = gyroBuilder.build()
+        tabContents.add(gyroContent)
+        contentHost.addView(gyroContent)
 
         // ===== TAB: Interaction =====
         val interactContent = LinearLayout(this).apply {
@@ -683,6 +706,9 @@ class WallpaperSetupActivity : AppCompatActivity() {
             .putFloat(FilterSettings.KEY_AUDIO_MOTION_SPEED, audioMotionSpeed)
             .apply()
 
+        // Save gyroscope config (own prefs file with JSON bindings)
+        gyroConfig.save(this)
+
         // Save parameter overrides
         val paramEditor = getSharedPreferences(PARAM_OVERRIDES_PREFS, Context.MODE_PRIVATE).edit()
         paramEditor.clear()
@@ -720,6 +746,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
             speed = audioMotionSpeed
         )
     }
+
 
     private fun launchOverlayService() {
         destroySessionOnGlThread()
@@ -789,6 +816,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         live2DManager = null
         audioVolumeSource = null
         audioDrivenMotion = null
+        gyroscopeDrivenMotion = null
 
         // Release view references so GC can collect them promptly
         glSurfaceView = null
@@ -828,6 +856,8 @@ class WallpaperSetupActivity : AppCompatActivity() {
             audioVolumeSource = session?.audioSource
             live2DManager = session?.manager
             audioDrivenMotion = session?.audioMotion
+            gyroscopeDrivenMotion = session?.gyroscopeMotion
+            gyroscopeDrivenMotion?.config = gyroConfig
 
             live2DManager?.setFitToScreen(true)
             live2DManager?.setModelScale(modelScale)
@@ -864,6 +894,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
                         ?.withEndAction { loadingOverlay?.visibility = View.GONE }
                         ?.start()
                     parameterTab?.populate(paramList)
+                    gyroscopeTab?.setAvailableParams(paramList)
                 }
             }
         }

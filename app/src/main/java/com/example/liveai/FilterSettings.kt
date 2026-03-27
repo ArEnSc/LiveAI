@@ -18,6 +18,7 @@ object FilterSettings {
     const val KEY_AUDIO_MOTION_INTENSITY = "audio_motion_intensity"
     const val KEY_AUDIO_MOTION_SPEED = "audio_motion_speed"
 
+
     fun loadInto(context: Context, postProcess: PostProcessFilter) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         postProcess.isSaturationEnabled = prefs.getBoolean(KEY_SATURATION, false)
