@@ -25,6 +25,8 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.example.liveai.audio.AudioDrivenMotion
 import com.example.liveai.audio.AudioMotionConfig
 import com.example.liveai.audio.AudioVolumeSource
@@ -205,6 +207,14 @@ class WallpaperSetupActivity : AppCompatActivity() {
         root.addView(controlsPanel, panelParams)
 
         setContentView(root)
+
+        // Pad the bottom of the controls panel so the nav bar doesn't cover the buttons
+        ViewCompat.setOnApplyWindowInsetsListener(controlsPanel) { view, insets ->
+            val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, navBarInsets.bottom)
+            insets
+        }
+
         setupTouchHandling()
     }
 
