@@ -49,6 +49,10 @@ class PocketTtsEngine(private val context: Context) {
     private val flowScalarS = floatArrayOf(0f)             // reusable [1,1] for s
     private val flowScalarT = floatArrayOf(0f)             // reusable [1,1] for t
 
+    // Pre-allocated output buffers reused every frame to avoid per-frame heap allocation
+    private var condOutputBuffer: FloatArray? = null       // lazily sized from first frame's conditioning output
+    private val audioOutputBuffer = FloatArray(SAMPLES_PER_FRAME)
+
     // Zero-copy state: hold previous OrtSession.Result alive so its output
     // tensors (used as next-step state inputs) remain valid without copying.
     private var flowLmPrevResult: OrtSession.Result? = null
@@ -312,15 +316,15 @@ class PocketTtsEngine(private val context: Context) {
             runFlowMatching(conditioning)
             totalFlowMatchMs += (System.nanoTime() - t0) / 1_000_000
 
-            // Decode audio frame
+            // Decode audio frame (returns shared buffer — callers must not hold a reference)
             t0 = System.nanoTime()
             val audioFrame = runMimiDecoder(mimiState, flowOutputBuffer)
             totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
-            allAudioFrames?.add(audioFrame)
+            allAudioFrames?.add(audioFrame.copyOf())
             totalSamplesGenerated += audioFrame.size
             framesGenerated++
 
-            // Callback for streaming
+            // Callback for streaming (processes immediately, buffer reused next frame)
             onFrame?.invoke(audioFrame, step)
 
             // Prepare next input — copy from output buffer since it gets overwritten
@@ -609,10 +613,17 @@ class PocketTtsEngine(private val context: Context) {
 
         val result = flowLmMain.run(inputs)
 
-        // Read outputs before handing result to zero-copy state update
+        // Read outputs into pre-allocated buffer (avoids per-frame allocation)
         val condTensor = result.valueAt(0) as OnnxTensor
         val condBuffer = condTensor.floatBuffer
-        val condData = FloatArray(condBuffer.remaining())
+        val condSize = condBuffer.remaining()
+        val condData = condOutputBuffer.let { buf ->
+            if (buf == null || buf.size != condSize) {
+                FloatArray(condSize).also { condOutputBuffer = it }
+            } else {
+                buf
+            }
+        }
         condBuffer.get(condData)
 
         val eosTensor = result.valueAt(1) as OnnxTensor
@@ -702,17 +713,16 @@ class PocketTtsEngine(private val context: Context) {
 
         val result = mimiDecoder.run(inputs)
 
-        // Read audio output before handing result to zero-copy state update
+        // Read audio output into pre-allocated buffer (avoids per-frame allocation)
         val audioTensor = result.valueAt(0) as OnnxTensor
         val audioBuffer = audioTensor.floatBuffer
-        val audioData = FloatArray(audioBuffer.remaining())
-        audioBuffer.get(audioData)
+        audioBuffer.get(audioOutputBuffer)
 
         mimiPrevResult = updateStateZeroCopy(state, result, mimiDecoder, mimiPrevResult)
 
         latentTensor.close()
 
-        return audioData
+        return audioOutputBuffer
     }
 
     private fun prepareText(text: String): String {
