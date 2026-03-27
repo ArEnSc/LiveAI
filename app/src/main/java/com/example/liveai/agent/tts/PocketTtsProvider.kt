@@ -11,6 +11,7 @@ import com.example.liveai.tts.SentencePieceTokenizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -50,6 +51,20 @@ class PocketTtsProvider(
 
     // Pre-allocated PCM buffer reused every frame to avoid per-frame allocation
     private val pcm16Buffer = ShortArray(PocketTtsEngine.SAMPLES_PER_FRAME)
+
+    // Producer-consumer queue: generation thread enqueues, playback thread drains
+    private val frameQueue = LinkedBlockingQueue<ShortArray>()
+    private var playbackThread: Thread? = null
+
+    // Pool of ShortArrays to avoid per-frame allocation for the queue
+    private val framePool = ArrayDeque<ShortArray>()
+
+    private fun acquireFrame(): ShortArray =
+        framePool.removeLastOrNull() ?: ShortArray(PocketTtsEngine.SAMPLES_PER_FRAME)
+
+    private fun releaseFrame(frame: ShortArray) {
+        framePool.addLast(frame)
+    }
 
     private val speaking = AtomicBoolean(false)
     private val stopRequested = AtomicBoolean(false)
@@ -145,6 +160,8 @@ class PocketTtsProvider(
     override fun stop() {
         stopRequested.set(true)
         mouthVolume = 0f
+        frameQueue.clear()
+        playbackThread?.interrupt()
         cleanupAudioTrack()
         speaking.set(false)
     }
@@ -196,11 +213,63 @@ class PocketTtsProvider(
             .build()
 
         audioTrack = track
+        frameQueue.clear()
 
-        var framesBuffered = 0
-        var playbackStarted = false
-        var totalSamplesWritten = 0
+        // Start playback drain thread
+        val sentinel = ShortArray(0)
+        val drainThread = Thread({
+            var framesWritten = 0
+            var totalSamplesWritten = 0
+            var playbackStarted = false
 
+            try {
+                while (true) {
+                    val frame = frameQueue.take()
+                    if (frame.isEmpty()) break // sentinel
+
+                    val written = track.write(frame, 0, frame.size)
+                    if (written > 0) {
+                        totalSamplesWritten += written
+                        framesWritten++
+                    }
+                    releaseFrame(frame)
+
+                    if (!playbackStarted && framesWritten >= BUFFER_FRAMES_BEFORE_PLAY) {
+                        track.play()
+                        playbackStarted = true
+                    }
+                }
+            } catch (_: InterruptedException) {
+                // stop() interrupted us — exit cleanly
+                return@Thread
+            }
+
+            // Start playback if generation finished before buffer threshold
+            if (!playbackStarted && framesWritten > 0) {
+                track.play()
+                playbackStarted = true
+            }
+
+            // Wait for AudioTrack to drain remaining samples
+            if (playbackStarted && totalSamplesWritten > 0) {
+                val maxWaitMs = (totalSamplesWritten * 1000L / PocketTtsEngine.SAMPLE_RATE) + 500
+                val startWait = System.currentTimeMillis()
+                try {
+                    while (!stopRequested.get()) {
+                        val headPosition = track.playbackHeadPosition
+                        if (headPosition >= totalSamplesWritten) break
+                        if (System.currentTimeMillis() - startWait > maxWaitMs) break
+                        Thread.sleep(50)
+                    }
+                } catch (_: InterruptedException) {
+                    // stop() interrupted drain wait
+                }
+            }
+        }, "PocketTTS-Playback")
+        playbackThread = drainThread
+        drainThread.start()
+
+        // Generation thread: produce frames into the queue
         val result = engine.generate(
             text = text,
             tokenizer = tokenizer,
@@ -212,7 +281,7 @@ class PocketTtsProvider(
                 // Sanitize in-place (no allocation)
                 AudioUtils.sanitize(frame)
 
-                // Compute RMS for lip sync
+                // Compute RMS for lip sync (on generation thread so it tracks generation, not playback)
                 mouthVolume = AudioUtils.rms(frame, gain = 3f)
 
                 // Convert to PCM16 using pre-allocated buffer
@@ -220,45 +289,30 @@ class PocketTtsProvider(
                 for (i in 0 until len) {
                     pcm16Buffer[i] = (frame[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
                 }
-                track.write(pcm16Buffer, 0, len)
-                totalSamplesWritten += len
-                framesBuffered++
 
-                if (!playbackStarted && framesBuffered >= BUFFER_FRAMES_BEFORE_PLAY) {
-                    track.play()
-                    playbackStarted = true
-                }
+                // Copy into pooled frame and enqueue (pcm16Buffer is reused)
+                val queued = acquireFrame()
+                System.arraycopy(pcm16Buffer, 0, queued, 0, len)
+                frameQueue.put(queued)
             }
         )
 
-        if (stopRequested.get()) return
-
-        // Start playback if we finished before hitting the buffer threshold
-        if (!playbackStarted && framesBuffered > 0) {
-            track.play()
-            playbackStarted = true
+        // Signal drain thread that generation is done
+        if (!stopRequested.get()) {
+            frameQueue.put(sentinel)
         }
 
-        // Wait for AudioTrack to finish draining
-        if (playbackStarted && totalSamplesWritten > 0) {
-            waitForPlaybackDrain(track, totalSamplesWritten)
+        // Wait for playback to finish draining
+        try {
+            drainThread.join()
+        } catch (_: InterruptedException) {
+            // stop() interrupted join
         }
+        playbackThread = null
 
         lastMetrics = result.metrics
         Log.i(TAG, "Spoke ${result.metrics.audioDurationSec}s in ${result.metrics.totalTimeMs}ms " +
             "(${String.format("%.2f", result.metrics.realtimeFactor)}x RT)")
-    }
-
-    private fun waitForPlaybackDrain(track: AudioTrack, totalSamples: Int) {
-        val maxWaitMs = (totalSamples * 1000L / PocketTtsEngine.SAMPLE_RATE) + 500
-        val startWait = System.currentTimeMillis()
-
-        while (!stopRequested.get()) {
-            val headPosition = track.playbackHeadPosition
-            if (headPosition >= totalSamples) break
-            if (System.currentTimeMillis() - startWait > maxWaitMs) break
-            Thread.sleep(50)
-        }
     }
 
     private fun cleanupAudioTrack() {
@@ -270,6 +324,14 @@ class PocketTtsProvider(
             // Already stopped
         }
         track.release()
+
+        // Ensure playback thread has exited
+        try {
+            playbackThread?.join(1000)
+        } catch (_: InterruptedException) {
+            // Ignored
+        }
+        playbackThread = null
     }
 
 }
