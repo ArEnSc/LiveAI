@@ -9,7 +9,10 @@ import android.graphics.PixelFormat
 import android.widget.ProgressBar
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -748,16 +751,65 @@ class WallpaperSetupActivity : AppCompatActivity() {
             // whatever EGL context is current there (e.g. the wallpaper engine's).
             destroySessionOnGlThread()
 
-            // Launch wallpaper picker
-            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
-                putExtra(
-                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                    ComponentName(this@WallpaperSetupActivity, Live2DWallpaperService::class.java)
-                )
-            }
-            startActivity(intent)
-            finish()
+            // Clear existing wallpaper first so the old engine fully tears down
+            // before the new one starts, avoiding EGL context conflicts.
+            clearExistingWallpaperThenApply()
         }
+    }
+
+    private fun clearExistingWallpaperThenApply() {
+        val wm = WallpaperManager.getInstance(this)
+        val info = wm.wallpaperInfo
+        val ourComponent = ComponentName(this, Live2DWallpaperService::class.java)
+        val isOurWallpaperActive = info != null && info.component == ourComponent
+
+        if (isOurWallpaperActive) {
+            // Clear the live wallpaper and poll until the engine has torn down
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    wm.clear(WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK)
+                } else {
+                    wm.clear()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to clear wallpaper before re-apply", e)
+            }
+            waitForWallpaperClearThenLaunch(wm, ourComponent, attemptsLeft = 20)
+        } else {
+            launchWallpaperPicker()
+        }
+    }
+
+    private fun waitForWallpaperClearThenLaunch(
+        wm: WallpaperManager,
+        ourComponent: ComponentName,
+        attemptsLeft: Int
+    ) {
+        val currentInfo = wm.wallpaperInfo
+        val stillActive = currentInfo != null && currentInfo.component == ourComponent
+
+        if (!stillActive || attemptsLeft <= 0) {
+            if (attemptsLeft <= 0) {
+                Log.w(TAG, "Wallpaper clear timed out, launching picker anyway")
+            }
+            launchWallpaperPicker()
+        } else {
+            // Poll again after 100ms
+            Handler(Looper.getMainLooper()).postDelayed({
+                waitForWallpaperClearThenLaunch(wm, ourComponent, attemptsLeft - 1)
+            }, 100)
+        }
+    }
+
+    private fun launchWallpaperPicker() {
+        val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+            putExtra(
+                WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                ComponentName(this@WallpaperSetupActivity, Live2DWallpaperService::class.java)
+            )
+        }
+        startActivity(intent)
+        finish()
     }
 
     private fun updateAudioMotionConfig() {
