@@ -52,7 +52,7 @@ import com.example.liveai.setup.GyroscopeTabBuilder
 import com.example.liveai.setup.ParameterTabBuilder
 import com.example.liveai.setup.PositionTabBuilder
 import com.example.liveai.setup.SetupUiHelpers
-import com.example.liveai.setup.TtsTabBuilder
+
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -75,7 +75,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         private const val TAB_GYRO = 3
         private const val TAB_INTERACT = 4
         private const val TAB_PARAMS = 5
-        private const val TAB_TTS = 6
+
     }
 
     private var setupMode = MODE_WALLPAPER
@@ -96,8 +96,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
     private var audioTab: AudioTabBuilder? = null
     private var gyroscopeTab: GyroscopeTabBuilder? = null
     private var parameterTab: ParameterTabBuilder? = null
-    private var ttsTab: TtsTabBuilder? = null
-
     private var modelScale = 1.0f
     private var offsetX = 0.0f
     private var offsetY = 0.0f
@@ -308,7 +306,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
         })
 
         // --- Tab bar ---
-        val tabNames = listOf("Position", "Effects", "Audio", "Gyro", "Interact", "Params", "TTS")
+        val tabNames = listOf("Position", "Effects", "Audio", "Gyro", "Interact", "Params")
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -520,17 +518,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
         val paramsContent = paramBuilder.buildPlaceholder()
         tabContents.add(paramsContent)
         contentHost.addView(paramsContent)
-
-        // ===== TAB: TTS =====
-        val ttsBuilder = TtsTabBuilder(
-            context = this,
-            glSurfaceView = { glSurfaceView },
-            live2DManager = { live2DManager }
-        )
-        ttsTab = ttsBuilder
-        val ttsContent = ttsBuilder.build()
-        tabContents.add(ttsContent)
-        contentHost.addView(ttsContent)
 
         // Wrap content in ScrollView
         val scrollView = ScrollView(this).apply {
@@ -839,9 +826,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
         audioDrivenMotion = null
         gyroscopeDrivenMotion = null
 
-        // Release TTS
-        ttsTab?.release()
-
         // Release view references so GC can collect them promptly
         glSurfaceView = null
         loadingOverlay = null
@@ -856,7 +840,6 @@ class WallpaperSetupActivity : AppCompatActivity() {
         effectsTab = null
         audioTab = null
         parameterTab = null
-        ttsTab = null
     }
 
     inner class SetupRenderer : GLSurfaceView.Renderer {

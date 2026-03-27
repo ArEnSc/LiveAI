@@ -26,4 +26,3 @@ rootProject.name = "LiveAI"
 include(":app")
 include(":framework")
 include(":tts")
-include(":tts-demo")

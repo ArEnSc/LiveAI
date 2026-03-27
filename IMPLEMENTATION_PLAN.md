@@ -17,7 +17,7 @@ until real backends are wired in.
 ✅ Chat input bar + send               — ChatInputBar
 ✅ Push-to-talk + speech recognition   — PushToTalkButton, SpeechRecognizerManager
 ✅ Mock streaming responses            — ChatOverlayViewModel.generateMockResponse()
-✅ TTS engine (ONNX, local)            — tts-demo module (PocketTtsEngine)
+✅ TTS engine (ONNX, local)            — tts module (PocketTtsEngine)
 ✅ OpenAI SDK dependency               — in build.gradle, not yet used
 ```
 
