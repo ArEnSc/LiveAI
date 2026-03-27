@@ -27,5 +27,5 @@ dependencies {
     implementation(libs.androidx.core.ktx)
 
     // ONNX Runtime
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.21.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.3")
 }
