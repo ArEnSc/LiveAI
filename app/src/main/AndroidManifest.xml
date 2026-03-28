@@ -40,6 +40,12 @@
             android:label="Component Catalog"
             android:theme="@style/Theme.LiveAI" />
 
+        <activity
+            android:name=".chat.ChatHeadTuningActivity"
+            android:exported="false"
+            android:label="Chat Head Physics"
+            android:theme="@style/Theme.LiveAI" />
+
         <service
             android:name=".OverlayService"
             android:exported="false"

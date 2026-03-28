@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.example.liveai.catalog.CatalogActivity
+import com.example.liveai.chat.ChatHeadTuningActivity
 import java.io.File
 import java.io.FileOutputStream
 
@@ -84,6 +85,10 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnRemoveWallpaper).setOnClickListener {
             removeWallpaper()
+        }
+
+        findViewById<Button>(R.id.btnChatHeadTuning).setOnClickListener {
+            startActivity(Intent(this, ChatHeadTuningActivity::class.java))
         }
 
         findViewById<Button>(R.id.btnCatalog).setOnClickListener {

@@ -67,6 +67,9 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.activity.compose)
 
+    // Dynamic animation (spring/fling for chat head physics)
+    implementation(libs.dynamicanimation)
+
     // Lifecycle (for collectAsStateWithLifecycle)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)

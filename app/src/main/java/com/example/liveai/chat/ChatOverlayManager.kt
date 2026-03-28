@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.util.Log
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -19,7 +18,6 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import kotlin.math.abs
 
 /**
  * Manages the floating chat ball + panel overlay attached to the system WindowManager.
@@ -55,12 +53,7 @@ class ChatOverlayManager(
     private val screenWidth get() = context.resources.displayMetrics.widthPixels
     private val screenHeight get() = context.resources.displayMetrics.heightPixels
 
-    // Drag tracking
-    private var initialX = 0
-    private var initialY = 0
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-    private var isDragging = false
+    private var dragController: DragController? = null
 
     fun create() {
         savedStateRegistryController.performRestore(null)
@@ -93,51 +86,21 @@ class ChatOverlayManager(
             ChatTab(isExpanded = isExpanded.value)
         }
 
-        setupTouchHandling(tabView!!)
+        dragController = DragController(
+            context = context,
+            windowManager = windowManager,
+            bounds = DragController.ScreenBounds(
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                windowSize = windowSizePx,
+                shadowPadding = shadowPaddingPx
+            ),
+            physics = ChatHeadSettings.load(context),
+            onTap = ::toggle,
+            onDrag = { if (isExpanded.value) updatePanelPosition() }
+        ).also { it.attachTo(tabView!!) { tabParams } }
+
         windowManager.addView(tabView, tabParams)
-    }
-
-    private fun setupTouchHandling(view: ComposeView) {
-        val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
-
-        view.setOnTouchListener { _, event ->
-            val params = tabParams ?: return@setOnTouchListener false
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    isDragging = false
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - initialTouchX
-                    val dy = event.rawY - initialTouchY
-                    if (!isDragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
-                        isDragging = true
-                    }
-                    if (isDragging) {
-                        params.x = initialX + dx.toInt()
-                        params.y = initialY + dy.toInt()
-                        windowManager.updateViewLayout(view, params)
-                        // Move panel with the ball if expanded
-                        if (isExpanded.value) {
-                            updatePanelPosition()
-                        }
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!isDragging) {
-                        toggle()
-                    }
-                    true
-                }
-                else -> false
-            }
-        }
     }
 
     private fun toggle() {
@@ -172,7 +135,6 @@ class ChatOverlayManager(
 
         updatePanelPosition()
 
-        // Panel composable reads panelVisible; starts false, auto-expands via LaunchedEffect
         panelVisible.value = true
 
         panelView = createComposeView {
@@ -193,19 +155,11 @@ class ChatOverlayManager(
     }
 
     private fun hidePanel() {
-        // Flip to false — ChatPanel's LaunchedEffect animates scaleX to 0,
-        // then calls onCollapseFinished which removes the window.
         panelVisible.value = false
     }
 
     private fun removePanel() {
-        panelView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove panel", e)
-            }
-        }
+        removeOverlayView(panelView)
         panelView = null
         panelParams = null
     }
@@ -225,12 +179,10 @@ class ChatOverlayManager(
         val panelHeightPx = (PANEL_HEIGHT_DP * dp).toInt()
         val gapPx = (GAP_DP * dp).toInt()
 
-        // The tab window includes shadow padding, so the actual ball position is offset
         val ballLeftPx = tParams.x + shadowPad
         val ballTopPx = tParams.y + shadowPad
         val ballCenterX = ballLeftPx + ballSizePx / 2
 
-        // Horizontal: panel to the right if ball is on left half, otherwise left
         val openRight = ballCenterX < screenWidth / 2
         pParams.x = if (openRight) {
             ballLeftPx + ballSizePx + gapPx
@@ -238,7 +190,6 @@ class ChatOverlayManager(
             ballLeftPx - panelWidthPx - gapPx
         }
 
-        // Vertical: panel sits above the ball with 8dp gap
         val inputGapPx = (8 * dp).toInt()
         pParams.y = (ballTopPx - panelHeightPx - inputGapPx).coerceAtLeast(0)
 
@@ -252,21 +203,38 @@ class ChatOverlayManager(
     }
 
     fun destroy() {
+        dragController?.destroy()
+        dragController = null
         speechManager.destroy()
         viewModel.destroy()
-        panelView?.let {
-            try { windowManager.removeView(it) } catch (_: Exception) {}
-        }
+
+        removeOverlayView(panelView)
         panelView = null
         panelParams = null
 
-        tabView?.let {
-            try { windowManager.removeView(it) } catch (_: Exception) {}
-        }
+        removeOverlayView(tabView)
         tabView = null
         tabParams = null
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+    }
+
+    /**
+     * Disposes the Compose composition and removes the view from WindowManager.
+     * Both steps are guarded independently so a failure in one doesn't prevent the other.
+     */
+    private fun removeOverlayView(view: ComposeView?) {
+        if (view == null) return
+        try {
+            view.disposeComposition()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to dispose composition", e)
+        }
+        try {
+            windowManager.removeView(view)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove view", e)
+        }
     }
 
     private fun createComposeView(content: @Composable () -> Unit): ComposeView {
