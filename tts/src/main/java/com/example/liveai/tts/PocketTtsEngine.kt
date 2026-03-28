@@ -35,11 +35,14 @@ class PocketTtsEngine(private val context: Context) {
     }
 
     private lateinit var env: OrtEnvironment
-    private lateinit var textConditioner: OrtSession
-    private lateinit var mimiEncoder: OrtSession
+    private var textConditioner: OrtSession? = null
+    private var mimiEncoder: OrtSession? = null
     private lateinit var flowLmMain: OrtSession
     private lateinit var flowLmFlow: OrtSession
     private lateinit var mimiDecoder: OrtSession
+
+    // Retained cold-path options for lazy re-loading after unload
+    private var coldSessionOptions: OrtSession.SessionOptions? = null
 
     // Pre-allocated tensors reused every frame to avoid JNI alloc overhead
     private lateinit var reusableEmptyText: OnnxTensor    // [1, 0, 1024] — constant
@@ -58,6 +61,11 @@ class PocketTtsEngine(private val context: Context) {
     private var flowLmPrevResult: OrtSession.Result? = null
     private var mimiPrevResult: OrtSession.Result? = null
 
+    // Shared RunOptions for hot-path inference — supports mid-inference termination
+    // via setTerminate(true), cutting cancellation latency from a full frame (~13ms)
+    // to near-instant.
+    private val hotRunOptions = OrtSession.RunOptions()
+
     // Cached voice embeddings — mimi_encoder output for a given voiceAudio.
     // Avoids re-encoding the same reference voice on every generate() call.
     private var cachedVoiceAudio: FloatArray? = null
@@ -67,6 +75,15 @@ class PocketTtsEngine(private val context: Context) {
     var lsdSteps: Int = DEFAULT_LSD_STEPS
     var eosThreshold: Float = DEFAULT_EOS_THRESHOLD
     var framesAfterEos: Int = DEFAULT_FRAMES_AFTER_EOS
+
+    /**
+     * Signal ORT to abort the current hot-path inference as soon as possible.
+     * Much faster than waiting for the Kotlin-level [shouldContinue] check,
+     * which can only run between frames (~13ms granularity).
+     */
+    fun requestStop() {
+        hotRunOptions.setTerminate(true)
+    }
 
     /**
      * Toggle XNNPACK for hot-path models (flow_lm_main, flow_lm_flow, mimi_decoder).
@@ -111,6 +128,7 @@ class PocketTtsEngine(private val context: Context) {
             setIntraOpNumThreads(4)
             setInterOpNumThreads(1)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            addConfigEntry("session.use_env_allocators", "1")
             try {
                 addXnnpack(mapOf("intra_op_num_threads" to "4"))
                 Log.i(TAG, "XNNPACK enabled for cold-path models")
@@ -139,7 +157,13 @@ class PocketTtsEngine(private val context: Context) {
             }
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             addConfigEntry("session.intra_op.allow_spinning", "1")
+            addConfigEntry("session.inter_op.allow_spinning", "0")
+            // Share allocators across sessions to reduce heap fragmentation
+            addConfigEntry("session.use_env_allocators", "1")
         }
+
+        // Retain cold options for lazy re-loading after unload
+        coldSessionOptions = coldOptions
 
         // Extract all models to cache so we can use file-path sessions (memory-mapped)
         extractModelsToCacheIfNeeded()
@@ -161,8 +185,8 @@ class PocketTtsEngine(private val context: Context) {
         val elapsed = System.currentTimeMillis() - startTime
         Log.i(TAG, "All 5 models loaded in ${elapsed}ms")
 
-        logModelInfo("text_conditioner", textConditioner)
-        logModelInfo("mimi_encoder", mimiEncoder)
+        textConditioner?.let { logModelInfo("text_conditioner", it) }
+        mimiEncoder?.let { logModelInfo("mimi_encoder", it) }
         logModelInfo("flow_lm_main", flowLmMain)
         logModelInfo("flow_lm_flow", flowLmFlow)
         logModelInfo("mimi_decoder", mimiDecoder)
@@ -231,6 +255,9 @@ class PocketTtsEngine(private val context: Context) {
         val runtime = Runtime.getRuntime()
         var peakMemory = 0L
 
+        // Reset terminate flag so hot-path runs proceed normally
+        hotRunOptions.setTerminate(false)
+
         fun trackMemory() {
             val used = runtime.totalMemory() - runtime.freeMemory()
             if (used > peakMemory) peakMemory = used
@@ -272,6 +299,9 @@ class PocketTtsEngine(private val context: Context) {
         val condTime = System.currentTimeMillis() - condStart
         Log.i(TAG, "KV-cache conditioning in ${condTime}ms")
 
+        // Cold-path models are no longer needed — unload to free ~86MB during generation
+        unloadColdModels()
+
         // 5. Initialize mimi_decoder state
         val mimiState = initState(mimiDecoder)
         mimiPrevResult = null
@@ -289,52 +319,57 @@ class PocketTtsEngine(private val context: Context) {
         var totalFlowMatchMs = 0L
         var totalDecoderMs = 0L
 
-        for (step in 0 until maxFrames) {
-            // Check cancellation
-            if (shouldContinue?.invoke() == false) {
-                Log.i(TAG, "Generation cancelled at step $step")
-                break
+        try {
+            for (step in 0 until maxFrames) {
+                // Check cancellation
+                if (shouldContinue?.invoke() == false) {
+                    Log.i(TAG, "Generation cancelled at step $step")
+                    break
+                }
+
+                // Run flow_lm_main
+                var t0 = System.nanoTime()
+                val (conditioning, eosLogit) = runFlowLmMain(flowState, currentInput)
+                totalFlowLmMs += (System.nanoTime() - t0) / 1_000_000
+
+                // Check EOS
+                if (eosLogit > eosThreshold && eosStep == null) {
+                    eosStep = step
+                    Log.i(TAG, "EOS detected at step $step (logit=$eosLogit)")
+                }
+                if (eosStep != null && step >= eosStep + framesAfterEos) {
+                    Log.i(TAG, "Stopping at step $step ($framesAfterEos frames after EOS)")
+                    break
+                }
+
+                // Flow matching (ODE solver)
+                t0 = System.nanoTime()
+                runFlowMatching(conditioning)
+                totalFlowMatchMs += (System.nanoTime() - t0) / 1_000_000
+
+                // Decode audio frame (returns shared buffer — callers must not hold a reference)
+                t0 = System.nanoTime()
+                val audioFrame = runMimiDecoder(mimiState, flowOutputBuffer)
+                totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
+                allAudioFrames?.add(audioFrame.copyOf())
+                totalSamplesGenerated += audioFrame.size
+                framesGenerated++
+
+                // Callback for streaming (processes immediately, buffer reused next frame)
+                onFrame?.invoke(audioFrame, step)
+
+                // Prepare next input — copy from output buffer since it gets overwritten
+                flowOutputBuffer.copyInto(currentInput)
+
+                // Track memory occasionally, not every frame
+                if (step % 10 == 0) {
+                    trackMemory()
+                    Log.d(TAG, "Step $step: generated ${audioFrame.size} samples")
+                }
             }
-
-            // Run flow_lm_main
-            var t0 = System.nanoTime()
-            val (conditioning, eosLogit) = runFlowLmMain(flowState, currentInput)
-            totalFlowLmMs += (System.nanoTime() - t0) / 1_000_000
-
-            // Check EOS
-            if (eosLogit > eosThreshold && eosStep == null) {
-                eosStep = step
-                Log.i(TAG, "EOS detected at step $step (logit=$eosLogit)")
-            }
-            if (eosStep != null && step >= eosStep + framesAfterEos) {
-                Log.i(TAG, "Stopping at step $step ($framesAfterEos frames after EOS)")
-                break
-            }
-
-            // Flow matching (ODE solver)
-            t0 = System.nanoTime()
-            runFlowMatching(conditioning)
-            totalFlowMatchMs += (System.nanoTime() - t0) / 1_000_000
-
-            // Decode audio frame (returns shared buffer — callers must not hold a reference)
-            t0 = System.nanoTime()
-            val audioFrame = runMimiDecoder(mimiState, flowOutputBuffer)
-            totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
-            allAudioFrames?.add(audioFrame.copyOf())
-            totalSamplesGenerated += audioFrame.size
-            framesGenerated++
-
-            // Callback for streaming (processes immediately, buffer reused next frame)
-            onFrame?.invoke(audioFrame, step)
-
-            // Prepare next input — copy from output buffer since it gets overwritten
-            flowOutputBuffer.copyInto(currentInput)
-
-            // Track memory occasionally, not every frame
-            if (step % 10 == 0) {
-                trackMemory()
-                Log.d(TAG, "Step $step: generated ${audioFrame.size} samples")
-            }
+        } catch (e: ai.onnxruntime.OrtException) {
+            // ORT throws when RunOptions.setTerminate(true) aborts a run() call mid-inference
+            Log.i(TAG, "Generation terminated by ORT at frame $framesGenerated: ${e.message}")
         }
 
         // Final memory check
@@ -434,14 +469,45 @@ class PocketTtsEngine(private val context: Context) {
 
     // --- Pipeline Steps ---
 
+    private fun ensureMimiEncoder(): OrtSession {
+        mimiEncoder?.let { return it }
+        val opts = coldSessionOptions ?: throw IllegalStateException("Models not loaded")
+        val session = loadSessionFromFile("mimi_encoder.onnx", opts)
+        mimiEncoder = session
+        Log.i(TAG, "mimi_encoder re-loaded on demand")
+        return session
+    }
+
+    private fun ensureTextConditioner(): OrtSession {
+        textConditioner?.let { return it }
+        val opts = coldSessionOptions ?: throw IllegalStateException("Models not loaded")
+        val session = loadSessionFromFile("text_conditioner.onnx", opts)
+        textConditioner = session
+        Log.i(TAG, "text_conditioner re-loaded on demand")
+        return session
+    }
+
+    /**
+     * Unload cold-path models (text_conditioner + mimi_encoder) to free ~86MB
+     * during the hot generation loop. They will be re-loaded on demand if needed.
+     */
+    private fun unloadColdModels() {
+        textConditioner?.close()
+        textConditioner = null
+        mimiEncoder?.close()
+        mimiEncoder = null
+        Log.i(TAG, "Cold-path models unloaded (~86MB freed)")
+    }
+
     private fun encodeVoice(audio: FloatArray): Array<FloatArray> {
+        val encoder = ensureMimiEncoder()
         val audioTensor = OnnxTensor.createTensor(
             env,
             FloatBuffer.wrap(audio),
             longArrayOf(1, 1, audio.size.toLong())
         )
 
-        val result = mimiEncoder.run(mapOf("audio" to audioTensor))
+        val result = encoder.run(mapOf("audio" to audioTensor))
         val outputTensor = result.valueAt(0) as OnnxTensor
 
         val shape = outputTensor.info.shape
@@ -460,6 +526,7 @@ class PocketTtsEngine(private val context: Context) {
     }
 
     private fun runTextConditioner(tokenIds: IntArray): Array<FloatArray> {
+        val conditioner = ensureTextConditioner()
         val longIds = LongArray(tokenIds.size) { tokenIds[it].toLong() }
         val tokenTensor = OnnxTensor.createTensor(
             env,
@@ -467,7 +534,7 @@ class PocketTtsEngine(private val context: Context) {
             longArrayOf(1, tokenIds.size.toLong())
         )
 
-        val result = textConditioner.run(mapOf("token_ids" to tokenTensor))
+        val result = conditioner.run(mapOf("token_ids" to tokenTensor))
         val outputTensor = result.valueAt(0) as OnnxTensor
 
         val shape = outputTensor.info.shape
@@ -611,7 +678,7 @@ class PocketTtsEngine(private val context: Context) {
         )
         inputs.putAll(state)
 
-        val result = flowLmMain.run(inputs)
+        val result = flowLmMain.run(inputs, hotRunOptions)
 
         // Read outputs into pre-allocated buffer (avoids per-frame allocation)
         val condTensor = result.valueAt(0) as OnnxTensor
@@ -679,7 +746,7 @@ class PocketTtsEngine(private val context: Context) {
                 "s" to sTensor,
                 "t" to tTensor,
                 "x" to xTensor
-            ))
+            ), hotRunOptions)
 
             val flowDir = (result.valueAt(0) as OnnxTensor).floatBuffer
             for (i in 0 until LATENT_DIM) {
@@ -711,7 +778,7 @@ class PocketTtsEngine(private val context: Context) {
         val inputs = mutableMapOf<String, OnnxTensor>("latent" to latentTensor)
         inputs.putAll(state)
 
-        val result = mimiDecoder.run(inputs)
+        val result = mimiDecoder.run(inputs, hotRunOptions)
 
         // Read audio output into pre-allocated buffer (avoids per-frame allocation)
         val audioTensor = result.valueAt(0) as OnnxTensor
@@ -751,9 +818,14 @@ class PocketTtsEngine(private val context: Context) {
         flowLmPrevResult = null
         mimiPrevResult?.close()
         mimiPrevResult = null
+        hotRunOptions.close()
         if (this::reusableEmptyText.isInitialized) reusableEmptyText.close()
-        if (this::textConditioner.isInitialized) textConditioner.close()
-        if (this::mimiEncoder.isInitialized) mimiEncoder.close()
+        textConditioner?.close()
+        textConditioner = null
+        mimiEncoder?.close()
+        mimiEncoder = null
+        coldSessionOptions?.close()
+        coldSessionOptions = null
         if (this::flowLmMain.isInitialized) flowLmMain.close()
         if (this::flowLmFlow.isInitialized) flowLmFlow.close()
         if (this::mimiDecoder.isInitialized) mimiDecoder.close()

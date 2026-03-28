@@ -159,6 +159,7 @@ class PocketTtsProvider(
 
     override fun stop() {
         stopRequested.set(true)
+        engine?.requestStop()
         mouthVolume = 0f
         frameQueue.clear()
         playbackThread?.interrupt()
