@@ -147,7 +147,7 @@ class ChatOverlayViewModel(
                 AgentDebug.log(TAG) { "timing: TTS speak done at +${System.currentTimeMillis() - sendMs}ms" }
             }
         } catch (e: CancellationException) {
-            _uiState.update { it.copy(isStreaming = false) }
+            finalizeStream()
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "LLM generate failed", e)
