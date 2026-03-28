@@ -7,6 +7,8 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import kotlin.math.sqrt
@@ -52,9 +54,32 @@ class PocketTtsEngine(private val context: Context) {
     private val flowScalarS = floatArrayOf(0f)             // reusable [1,1] for s
     private val flowScalarT = floatArrayOf(0f)             // reusable [1,1] for t
 
+    // Pre-allocated DirectByteBuffer wrappers — reused every frame to avoid
+    // FloatBuffer.wrap() creating a new heap wrapper object per tensor creation.
+    // Direct buffers also avoid an extra JNI copy vs heap buffers.
+    private val directSeqBuf = allocateDirectFloat(LATENT_DIM)
+    private val directFlowXBuf = allocateDirectFloat(LATENT_DIM)
+    private val directScalarS = allocateDirectFloat(1)
+    private val directScalarT = allocateDirectFloat(1)
+    private val directLatentBuf = allocateDirectFloat(LATENT_DIM)
+
     // Pre-allocated output buffers reused every frame to avoid per-frame heap allocation
     private var condOutputBuffer: FloatArray? = null       // lazily sized from first frame's conditioning output
     private val audioOutputBuffer = FloatArray(SAMPLES_PER_FRAME)
+
+    // Mutable field to return EOS logit from runFlowLmMain without allocating a Pair
+    private var lastEosLogit: Float = 0f
+
+    // Pre-built input maps for hot-path models — avoids HashMap allocation + putAll per frame.
+    // The "sequence"/"latent" entries are swapped in-place before each run().
+    private lateinit var flowLmInputs: MutableMap<String, OnnxTensor>
+    private lateinit var mimiDecoderInputs: MutableMap<String, OnnxTensor>
+    // flow_lm_flow has no state, so a simple map is fine (rebuilt once per frame with 4 entries)
+    private val flowFlowInputs = HashMap<String, OnnxTensor>(4)
+
+    // Cached output name lists — avoids keys.toList() allocation in updateStateZeroCopy
+    private lateinit var flowLmOutputNames: List<String>
+    private lateinit var mimiDecoderOutputNames: List<String>
 
     // Zero-copy state: hold previous OrtSession.Result alive so its output
     // tensors (used as next-step state inputs) remain valid without copying.
@@ -182,6 +207,10 @@ class PocketTtsEngine(private val context: Context) {
             longArrayOf(1, 0, COND_DIM.toLong())
         )
 
+        // Cache output name lists for zero-copy state updates (avoids per-frame toList())
+        flowLmOutputNames = flowLmMain.outputInfo.keys.toList()
+        mimiDecoderOutputNames = mimiDecoder.outputInfo.keys.toList()
+
         val elapsed = System.currentTimeMillis() - startTime
         Log.i(TAG, "All 5 models loaded in ${elapsed}ms")
 
@@ -306,6 +335,16 @@ class PocketTtsEngine(private val context: Context) {
         val mimiState = initState(mimiDecoder)
         mimiPrevResult = null
 
+        // Build the pre-allocated input maps with state entries.
+        // During the hot loop, only the "sequence"/"latent" entries are swapped per frame;
+        // state entries are updated in-place by updateStateZeroCopy.
+        flowLmInputs = HashMap<String, OnnxTensor>(flowState.size + 2)
+        flowLmInputs["text_embeddings"] = reusableEmptyText
+        flowLmInputs.putAll(flowState)
+
+        mimiDecoderInputs = HashMap<String, OnnxTensor>(mimiState.size + 1)
+        mimiDecoderInputs.putAll(mimiState)
+
         // 6. Autoregressive generation loop
         val isStreaming = onFrame != null
         val genStart = System.currentTimeMillis()
@@ -327,15 +366,15 @@ class PocketTtsEngine(private val context: Context) {
                     break
                 }
 
-                // Run flow_lm_main
+                // Run flow_lm_main (EOS logit written to lastEosLogit)
                 var t0 = System.nanoTime()
-                val (conditioning, eosLogit) = runFlowLmMain(flowState, currentInput)
+                val conditioning = runFlowLmMain(currentInput)
                 totalFlowLmMs += (System.nanoTime() - t0) / 1_000_000
 
                 // Check EOS
-                if (eosLogit > eosThreshold && eosStep == null) {
+                if (lastEosLogit > eosThreshold && eosStep == null) {
                     eosStep = step
-                    Log.i(TAG, "EOS detected at step $step (logit=$eosLogit)")
+                    Log.i(TAG, "EOS detected at step $step (logit=$lastEosLogit)")
                 }
                 if (eosStep != null && step >= eosStep + framesAfterEos) {
                     Log.i(TAG, "Stopping at step $step ($framesAfterEos frames after EOS)")
@@ -349,7 +388,7 @@ class PocketTtsEngine(private val context: Context) {
 
                 // Decode audio frame (returns shared buffer — callers must not hold a reference)
                 t0 = System.nanoTime()
-                val audioFrame = runMimiDecoder(mimiState, flowOutputBuffer)
+                val audioFrame = runMimiDecoder(flowOutputBuffer)
                 totalDecoderMs += (System.nanoTime() - t0) / 1_000_000
                 allAudioFrames?.add(audioFrame.copyOf())
                 totalSamplesGenerated += audioFrame.size
@@ -425,9 +464,19 @@ class PocketTtsEngine(private val context: Context) {
 
     // --- Helpers ---
 
+    private fun allocateDirectFloat(count: Int): FloatBuffer =
+        ByteBuffer.allocateDirect(count * Float.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+
+    /**
+     * Access a result output by index using the iterator instead of toList(),
+     * avoiding a List allocation on every call.
+     */
     private fun OrtSession.Result.valueAt(index: Int): OnnxValue {
-        val entries = this.toList()
-        return entries[index].value
+        val iter = this.iterator()
+        repeat(index) { iter.next() }
+        return iter.next().value
     }
 
     private fun reshape(flat: BooleanArray, shape: LongArray): Any {
@@ -596,6 +645,7 @@ class PocketTtsEngine(private val context: Context) {
      * output tensors and keep the result alive until the next call replaces it.
      * This avoids expensive per-frame buffer copies of the KV-cache.
      *
+     * @param outputNames pre-cached list of output names (avoids per-call toList())
      * @param previousResult the result from the prior call — will be closed now
      *        that its tensors are no longer needed
      * @return the new result, which the caller must keep alive
@@ -603,13 +653,12 @@ class PocketTtsEngine(private val context: Context) {
     private fun updateStateZeroCopy(
         state: MutableMap<String, OnnxTensor>,
         result: OrtSession.Result,
-        session: OrtSession,
+        outputNames: List<String>,
         previousResult: OrtSession.Result?
     ): OrtSession.Result {
         // Close the previous result — its output tensors were the old state entries
         previousResult?.close()
 
-        val outputNames = session.outputInfo.keys.toList()
         for ((i, name) in outputNames.withIndex()) {
             if (name.startsWith("out_state_")) {
                 val idx = name.removePrefix("out_state_").toInt()
@@ -654,31 +703,30 @@ class PocketTtsEngine(private val context: Context) {
         inputs.putAll(state)
 
         val result = flowLmMain.run(inputs)
-        flowLmPrevResult = updateStateZeroCopy(state, result, flowLmMain, flowLmPrevResult)
+        flowLmPrevResult = updateStateZeroCopy(state, result, flowLmOutputNames, flowLmPrevResult)
 
         emptySeq.close()
         embTensor.close()
     }
 
-    private fun runFlowLmMain(
-        state: MutableMap<String, OnnxTensor>,
-        latentInput: FloatArray
-    ): Pair<FloatArray, Float> {
-        // Reuse pre-allocated buffer — copy input data into it
-        latentInput.copyInto(flowSeqBuffer)
+    /**
+     * Run flow_lm_main for one AR step. Returns the conditioning buffer (shared —
+     * do not hold a reference). EOS logit is written to [lastEosLogit].
+     * State entries in [flowLmInputs] are updated in-place by zero-copy.
+     */
+    private fun runFlowLmMain(latentInput: FloatArray): FloatArray {
+        // Copy input data into pre-allocated direct buffer
+        directSeqBuf.clear()
+        directSeqBuf.put(latentInput, 0, LATENT_DIM)
+        directSeqBuf.rewind()
         val seqTensor = OnnxTensor.createTensor(
-            env,
-            FloatBuffer.wrap(flowSeqBuffer),
-            longArrayOf(1, 1, LATENT_DIM.toLong())
+            env, directSeqBuf, longArrayOf(1, 1, LATENT_DIM.toLong())
         )
 
-        val inputs = mutableMapOf<String, OnnxTensor>(
-            "sequence" to seqTensor,
-            "text_embeddings" to reusableEmptyText
-        )
-        inputs.putAll(state)
+        // Update the pre-built input map in-place (state entries already there)
+        flowLmInputs["sequence"] = seqTensor
 
-        val result = flowLmMain.run(inputs, hotRunOptions)
+        val result = flowLmMain.run(flowLmInputs, hotRunOptions)
 
         // Read outputs into pre-allocated buffer (avoids per-frame allocation)
         val condTensor = result.valueAt(0) as OnnxTensor
@@ -694,15 +742,14 @@ class PocketTtsEngine(private val context: Context) {
         condBuffer.get(condData)
 
         val eosTensor = result.valueAt(1) as OnnxTensor
-        val eosLogit = eosTensor.floatBuffer.get(0)
+        lastEosLogit = eosTensor.floatBuffer.get(0)
 
-        // Zero-copy: point state entries at result's output tensors,
-        // close the previous result whose tensors are no longer needed
-        flowLmPrevResult = updateStateZeroCopy(state, result, flowLmMain, flowLmPrevResult)
+        // Zero-copy: update state entries directly in flowLmInputs
+        flowLmPrevResult = updateStateZeroCopy(flowLmInputs, result, flowLmOutputNames, flowLmPrevResult)
 
         seqTensor.close()
 
-        return condData to eosLogit
+        return condData
     }
 
     // Persistent RNG avoids re-seeding each frame
@@ -728,25 +775,32 @@ class PocketTtsEngine(private val context: Context) {
         )
 
         for (j in 0 until lsdSteps) {
-            flowScalarS[0] = j.toFloat() / lsdSteps
-            flowScalarT[0] = flowScalarS[0] + dt
+            // Write scalars into pre-allocated direct buffers
+            directScalarS.clear()
+            directScalarS.put(j.toFloat() / lsdSteps)
+            directScalarS.rewind()
 
-            val sTensor = OnnxTensor.createTensor(
-                env, FloatBuffer.wrap(flowScalarS), longArrayOf(1, 1)
-            )
-            val tTensor = OnnxTensor.createTensor(
-                env, FloatBuffer.wrap(flowScalarT), longArrayOf(1, 1)
-            )
+            directScalarT.clear()
+            directScalarT.put(directScalarS.get(0) + dt)
+            directScalarT.rewind()
+
+            val sTensor = OnnxTensor.createTensor(env, directScalarS, longArrayOf(1, 1))
+            val tTensor = OnnxTensor.createTensor(env, directScalarT, longArrayOf(1, 1))
+
+            directFlowXBuf.clear()
+            directFlowXBuf.put(flowXBuffer, 0, LATENT_DIM)
+            directFlowXBuf.rewind()
             val xTensor = OnnxTensor.createTensor(
-                env, FloatBuffer.wrap(flowXBuffer), longArrayOf(1, LATENT_DIM.toLong())
+                env, directFlowXBuf, longArrayOf(1, LATENT_DIM.toLong())
             )
 
-            val result = flowLmFlow.run(mapOf(
-                "c" to cTensor,
-                "s" to sTensor,
-                "t" to tTensor,
-                "x" to xTensor
-            ), hotRunOptions)
+            // Reuse pre-sized map — clear and refill (4 entries, no resize)
+            flowFlowInputs["c"] = cTensor
+            flowFlowInputs["s"] = sTensor
+            flowFlowInputs["t"] = tTensor
+            flowFlowInputs["x"] = xTensor
+
+            val result = flowLmFlow.run(flowFlowInputs, hotRunOptions)
 
             val flowDir = (result.valueAt(0) as OnnxTensor).floatBuffer
             for (i in 0 until LATENT_DIM) {
@@ -765,27 +819,29 @@ class PocketTtsEngine(private val context: Context) {
         flowXBuffer.copyInto(flowOutputBuffer)
     }
 
-    private fun runMimiDecoder(
-        state: MutableMap<String, OnnxTensor>,
-        latent: FloatArray
-    ): FloatArray {
+    /**
+     * Run mimi_decoder for one frame. Returns the shared [audioOutputBuffer].
+     * State entries in [mimiDecoderInputs] are updated in-place by zero-copy.
+     */
+    private fun runMimiDecoder(latent: FloatArray): FloatArray {
+        directLatentBuf.clear()
+        directLatentBuf.put(latent, 0, LATENT_DIM)
+        directLatentBuf.rewind()
         val latentTensor = OnnxTensor.createTensor(
-            env,
-            FloatBuffer.wrap(latent),
-            longArrayOf(1, 1, LATENT_DIM.toLong())
+            env, directLatentBuf, longArrayOf(1, 1, LATENT_DIM.toLong())
         )
 
-        val inputs = mutableMapOf<String, OnnxTensor>("latent" to latentTensor)
-        inputs.putAll(state)
+        // Update the pre-built input map in-place (state entries already there)
+        mimiDecoderInputs["latent"] = latentTensor
 
-        val result = mimiDecoder.run(inputs, hotRunOptions)
+        val result = mimiDecoder.run(mimiDecoderInputs, hotRunOptions)
 
         // Read audio output into pre-allocated buffer (avoids per-frame allocation)
         val audioTensor = result.valueAt(0) as OnnxTensor
         val audioBuffer = audioTensor.floatBuffer
         audioBuffer.get(audioOutputBuffer)
 
-        mimiPrevResult = updateStateZeroCopy(state, result, mimiDecoder, mimiPrevResult)
+        mimiPrevResult = updateStateZeroCopy(mimiDecoderInputs, result, mimiDecoderOutputNames, mimiPrevResult)
 
         latentTensor.close()
 
