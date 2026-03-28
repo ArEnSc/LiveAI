@@ -27,7 +27,10 @@ import kotlin.math.abs
  */
 class ChatOverlayManager(
     private val context: Context,
-    private val windowManager: WindowManager
+    private val windowManager: WindowManager,
+    private val llmProvider: com.example.liveai.agent.llm.LlmProvider,
+    private val ttsProvider: com.example.liveai.agent.tts.TtsProvider? = null,
+    private val systemPrompt: String = ""
 ) : LifecycleOwner, SavedStateRegistryOwner {
 
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -46,7 +49,7 @@ class ChatOverlayManager(
     private val isExpanded = mutableStateOf(false)
     private val panelVisible = mutableStateOf(false)
     private val speechManager = SpeechRecognizerManager(context)
-    private val viewModel = ChatOverlayViewModel(speechManager)
+    private val viewModel = ChatOverlayViewModel(speechManager, llmProvider, ttsProvider, systemPrompt)
 
     private val dp get() = context.resources.displayMetrics.density
     private val screenWidth get() = context.resources.displayMetrics.widthPixels

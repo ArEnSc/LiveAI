@@ -1,11 +1,15 @@
 package com.example.liveai.chat
 
+import android.util.Log
+import com.example.liveai.agent.AgentDebug
+import com.example.liveai.agent.llm.LlmProvider
+import com.example.liveai.agent.model.Message
+import com.example.liveai.agent.tts.TtsProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,11 +30,9 @@ data class ChatUiState(
     val mode: ChatMode = ChatMode.Short,
     val speechState: SpeechState = SpeechState.Idle
 ) {
-    /** In short mode, only show the latest user+assistant exchange. */
     val visibleMessages: List<ChatMessage>
         get() {
             if (mode == ChatMode.History || messages.isEmpty()) return messages
-            // Short mode: show from last user message onward
             val lastUserIndex = messages.indexOfLast { it.isUser }
             return if (lastUserIndex < 0) {
                 listOf(messages.last())
@@ -41,108 +43,131 @@ data class ChatUiState(
 }
 
 /**
- * Manages chat state and mock-streams responses.
+ * Manages chat state and streams LLM responses.
  * Scoped to the ChatOverlayManager lifecycle (not a ViewModel subclass
  * since we're running in a Service, not an Activity).
  */
 class ChatOverlayViewModel(
-    private val speechManager: SpeechRecognizerManager
+    private val speechManager: SpeechRecognizerManager,
+    private val llmProvider: LlmProvider,
+    private val ttsProvider: TtsProvider? = null,
+    systemPrompt: String
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var streamJob: Job? = null
+    private val conversationHistory = mutableListOf<Message>(
+        Message.System(content = systemPrompt)
+    )
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     init {
-        // Observe speech state and auto-send on final result
         scope.launch {
             speechManager.state.collect { speechState ->
                 _uiState.update { it.copy(speechState = speechState) }
                 if (speechState is SpeechState.Result) {
-                    onSend(speechState.finalText)
-                    // Reset speech state after sending
+                    if (speechState.finalText.isNotBlank()) {
+                        onSend(speechState.finalText)
+                    }
                     speechManager.resetToIdle()
                 }
             }
         }
     }
 
-    fun onStartListening() {
-        speechManager.startListening()
-    }
-
-    fun onStopListening() {
-        speechManager.stopListening()
-    }
+    fun onStartListening() = speechManager.startListening()
+    fun onStopListening() = speechManager.stopListening()
 
     fun onModeChange(mode: ChatMode) {
         _uiState.update { it.copy(mode = mode) }
     }
 
     fun onSend(message: String) {
-        // Cancel any in-progress stream
-        streamJob?.cancel()
+        if (message.isBlank()) return
 
-        // Add user message
-        _uiState.update { state ->
-            state.copy(
-                messages = state.messages
-                    .map { it.copy(isStreaming = false) } + ChatMessage(
-                    text = message,
-                    isUser = true
+        streamJob?.cancel()
+        ttsProvider?.stop()
+
+        conversationHistory.add(Message.User(content = message))
+        appendUiMessage(ChatMessage(text = message, isUser = true))
+
+        streamJob = scope.launch { streamFromLlm() }
+    }
+
+    fun destroy() = scope.cancel()
+
+    // --- private helpers ---
+
+    private suspend fun streamFromLlm() {
+        appendUiMessage(ChatMessage(text = "", isUser = false, isStreaming = true))
+        _uiState.update { it.copy(isStreaming = true) }
+
+        val sendMs = System.currentTimeMillis()
+        AgentDebug.log(TAG) { "timing: generate started" }
+
+        try {
+            var firstChunkLogged = false
+            val response = llmProvider.generate(
+                messages = conversationHistory.toList(),
+                onChunk = { chunk ->
+                    if (!firstChunkLogged) {
+                        firstChunkLogged = true
+                        AgentDebug.log(TAG) { "timing: first UI chunk at +${System.currentTimeMillis() - sendMs}ms" }
+                    }
+                    appendToLastMessage(chunk)
+                }
+            )
+
+            AgentDebug.log(TAG) { "timing: stream complete at +${System.currentTimeMillis() - sendMs}ms" }
+
+            val fullContent = response.content ?: ""
+            conversationHistory.add(Message.Assistant(content = fullContent))
+            finalizeStream()
+
+            if (fullContent.isNotBlank()) {
+                AgentDebug.log(TAG) { "timing: TTS speak start at +${System.currentTimeMillis() - sendMs}ms (${fullContent.length} chars)" }
+                ttsProvider?.speak(fullContent)
+                AgentDebug.log(TAG) { "timing: TTS speak done at +${System.currentTimeMillis() - sendMs}ms" }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "LLM generate failed", e)
+            replaceLastMessage(
+                ChatMessage(
+                    text = "Sorry, I couldn't get a response. ${e.message ?: "Unknown error"}",
+                    isUser = false
                 )
             )
-        }
-
-        // Start mock streaming response
-        streamJob = scope.launch {
-            val response = generateMockResponse(message)
-            streamResponse(response)
         }
     }
 
-    private suspend fun streamResponse(fullText: String) {
-        // Add empty assistant message in streaming state
+    private fun appendUiMessage(message: ChatMessage) {
         _uiState.update { state ->
             state.copy(
-                messages = state.messages + ChatMessage(
-                    text = "",
-                    isUser = false,
-                    isStreaming = true
-                ),
-                isStreaming = true
+                messages = state.messages.map { it.copy(isStreaming = false) } + message
             )
         }
+    }
 
-        // Stream character by character
-        val builder = StringBuilder()
-        for (char in fullText) {
-            builder.append(char)
-            val streamedText = builder.toString()
-
-            _uiState.update { state ->
-                val updated = state.messages.toMutableList()
-                updated[updated.lastIndex] = ChatMessage(
-                    text = streamedText,
-                    isUser = false,
-                    isStreaming = true
-                )
-                state.copy(messages = updated)
-            }
-
-            // Variable delay for natural feel — faster for spaces, slower for punctuation
-            val delayMs = when (char) {
-                ' ' -> 20L
-                '.', '!', '?' -> 80L
-                ',' -> 50L
-                else -> 30L
-            }
-            delay(delayMs)
+    private fun appendToLastMessage(chunk: String) {
+        _uiState.update { state ->
+            val updated = state.messages.toMutableList()
+            val last = updated.last()
+            updated[updated.lastIndex] = last.copy(text = last.text + chunk)
+            state.copy(messages = updated)
         }
+    }
 
-        // Mark streaming complete
+    private fun replaceLastMessage(message: ChatMessage) {
+        _uiState.update { state ->
+            val updated = state.messages.toMutableList()
+            updated[updated.lastIndex] = message
+            state.copy(messages = updated, isStreaming = false)
+        }
+    }
+
+    private fun finalizeStream() {
         _uiState.update { state ->
             val updated = state.messages.toMutableList()
             updated[updated.lastIndex] = updated.last().copy(isStreaming = false)
@@ -150,22 +175,7 @@ class ChatOverlayViewModel(
         }
     }
 
-    private fun generateMockResponse(userMessage: String): String {
-        val lower = userMessage.lowercase()
-        return when {
-            "hello" in lower || "hi" in lower ->
-                "Hey there! I'm your AI assistant. How can I help you today?"
-            "weather" in lower ->
-                "I don't have access to live weather data yet, but I can help with other things!"
-            "help" in lower ->
-                "I can answer questions, help with tasks, or just chat. What's on your mind?"
-            else ->
-                "You said: \"$userMessage\" — that's interesting! This is a mock response " +
-                    "to demonstrate streaming. Real AI integration is coming soon."
-        }
-    }
-
-    fun destroy() {
-        scope.cancel()
+    companion object {
+        private const val TAG = "ChatOverlayViewModel"
     }
 }

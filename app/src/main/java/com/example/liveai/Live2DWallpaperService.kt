@@ -330,6 +330,14 @@ class Live2DWallpaperService : WallpaperService() {
             if (cw > 0f && ch > 0f) {
                 modelLoaded = true
                 Log.d(TAG, "[$engineId] loadModel: SUCCESS canvas=${cw}x${ch}")
+
+                // Connect TTS lip sync — use a lazy source that polls the shared
+                // provider each frame, so it works even if overlay starts after wallpaper
+                val volumeSource = com.example.liveai.live2d.LAppModel.MouthVolumeSource {
+                    OverlayService.sharedTtsProvider?.mouthVolume ?: 0f
+                }
+                live2DManager?.setMouthVolumeSource(volumeSource)
+                Log.d(TAG, "[$engineId] TTS lip sync source attached (lazy polling)")
             } else {
                 Log.e(TAG, "[$engineId] loadModel: FAILED canvas=${cw}x${ch} — model did not load")
                 modelLoaded = false

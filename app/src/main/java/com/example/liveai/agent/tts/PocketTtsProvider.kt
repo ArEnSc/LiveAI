@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
+import com.example.liveai.agent.AgentDebug
 import com.example.liveai.tts.AudioUtils
 import com.example.liveai.tts.PocketTtsEngine
 import com.example.liveai.tts.SentencePieceTokenizer
@@ -185,10 +186,14 @@ class PocketTtsProvider(
         voiceAudio: FloatArray,
         text: String
     ) {
+        val synthStart = System.currentTimeMillis()
+        AgentDebug.log(TAG) { "tts: synthesis start (${text.length} chars)" }
+
         val track = createAudioTrack()
         audioTrack = track
         frameQueue.clear()
         rmsCount = 0
+        var firstFrameLogged = false
 
         val drainThread = startPlaybackThread(track)
 
@@ -199,9 +204,16 @@ class PocketTtsProvider(
             shouldContinue = { !stopRequested.get() },
             onFrame = { frame, _ ->
                 if (stopRequested.get()) return@generate
+                if (!firstFrameLogged) {
+                    firstFrameLogged = true
+                    AgentDebug.log(TAG) { "tts: first frame at +${System.currentTimeMillis() - synthStart}ms" }
+                }
                 enqueueFrame(frame)
             }
         )
+
+        val synthDone = System.currentTimeMillis()
+        AgentDebug.log(TAG) { "tts: synthesis done at +${synthDone - synthStart}ms (${result.metrics.audioDurationSec}s audio)" }
 
         // Signal end-of-stream and wait for playback to finish
         if (!stopRequested.get()) {
@@ -209,6 +221,8 @@ class PocketTtsProvider(
         }
         try { drainThread.join() } catch (_: InterruptedException) {}
         playbackThread = null
+
+        AgentDebug.log(TAG) { "tts: playback done at +${System.currentTimeMillis() - synthStart}ms" }
 
         lastMetrics = result.metrics
         Log.i(TAG, "Spoke ${result.metrics.audioDurationSec}s in ${result.metrics.totalTimeMs}ms " +
@@ -300,6 +314,7 @@ class PocketTtsProvider(
                     releaseFrame(frame)
 
                     if (!playbackStarted && framesWritten >= BUFFER_FRAMES_BEFORE_PLAY) {
+                        AgentDebug.log(TAG) { "tts: AudioTrack.play() — audio out" }
                         track.play()
                         playbackStarted = true
                     }
