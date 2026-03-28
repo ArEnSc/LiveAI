@@ -70,6 +70,21 @@ class Live2DWallpaperService : WallpaperService() {
         private var loadingTimeHandle = 0
         private var loadingStartTime = 0L
 
+        // Pre-allocated buffers to avoid per-frame heap allocations
+        private val bgVertexBuffer = floatArrayOf(
+            -1f, -1f, 0f, 1f,
+             1f, -1f, 1f, 1f,
+            -1f,  1f, 0f, 0f,
+             1f,  1f, 1f, 0f
+        ).toFloatBuffer()
+
+        private val quadVertexBuffer = floatArrayOf(
+            -1f, -1f,
+             1f, -1f,
+            -1f,  1f,
+             1f,  1f
+        ).toFloatBuffer()
+
         private val handler = Handler(Looper.getMainLooper())
         private var visible = false
         private var frameCount = 0L
@@ -470,24 +485,15 @@ class Live2DWallpaperService : WallpaperService() {
         private fun drawBackground() {
             if (bgTextureId == 0) return
 
-            val vertices = floatArrayOf(
-                -1f, -1f, 0f, 1f,
-                 1f, -1f, 1f, 1f,
-                -1f,  1f, 0f, 0f,
-                 1f,  1f, 1f, 0f
-            )
-
-            val buffer = vertices.toFloatBuffer()
-
             GLES20.glUseProgram(bgShaderProgram)
 
-            buffer.position(0)
+            bgVertexBuffer.position(0)
             GLES20.glEnableVertexAttribArray(bgPositionHandle)
-            GLES20.glVertexAttribPointer(bgPositionHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
+            GLES20.glVertexAttribPointer(bgPositionHandle, 2, GLES20.GL_FLOAT, false, 16, bgVertexBuffer)
 
-            buffer.position(2)
+            bgVertexBuffer.position(2)
             GLES20.glEnableVertexAttribArray(bgTexCoordHandle)
-            GLES20.glVertexAttribPointer(bgTexCoordHandle, 2, GLES20.GL_FLOAT, false, 16, buffer)
+            GLES20.glVertexAttribPointer(bgTexCoordHandle, 2, GLES20.GL_FLOAT, false, 16, bgVertexBuffer)
 
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgTextureId)
@@ -545,21 +551,13 @@ class Live2DWallpaperService : WallpaperService() {
 
             val elapsed = (System.nanoTime() - loadingStartTime) / 1_000_000_000f
 
-            val vertices = floatArrayOf(
-                -1f, -1f,
-                 1f, -1f,
-                -1f,  1f,
-                 1f,  1f
-            )
-
-            val buffer = vertices.toFloatBuffer()
-
             GLES20.glEnable(GLES20.GL_BLEND)
             GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
             GLES20.glUseProgram(loadingShaderProgram)
 
+            quadVertexBuffer.position(0)
             GLES20.glEnableVertexAttribArray(loadingPositionHandle)
-            GLES20.glVertexAttribPointer(loadingPositionHandle, 2, GLES20.GL_FLOAT, false, 0, buffer)
+            GLES20.glVertexAttribPointer(loadingPositionHandle, 2, GLES20.GL_FLOAT, false, 0, quadVertexBuffer)
 
             GLES20.glUniform2f(loadingResolutionHandle, surfaceWidth.toFloat(), surfaceHeight.toFloat())
             GLES20.glUniform1f(loadingTimeHandle, elapsed)
