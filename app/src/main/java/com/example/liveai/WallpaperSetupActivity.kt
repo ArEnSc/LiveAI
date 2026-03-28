@@ -863,7 +863,7 @@ class WallpaperSetupActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         audioTab?.stopVolumeUpdates()
-        glSurfaceView?.onPause()
+        destroySessionOnGlThread()  // clean GL teardown before thread stops
     }
 
     override fun onResume() {
