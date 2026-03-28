@@ -91,12 +91,6 @@ class Live2DWallpaperService : WallpaperService() {
         private var frameCount = 0L
         private val engineId = System.identityHashCode(this)
 
-        // Frame timing diagnostics (logcat only, zero render cost)
-        private var lastFrameNs = 0L
-        private var frameTimeAccumulatorMs = 0.0
-        private var frameTimeSampleCount = 0
-        private var slowFrameCount = 0
-
         private val drawRunnable = object : Runnable {
             override fun run() {
                 if (visible) {
@@ -366,7 +360,6 @@ class Live2DWallpaperService : WallpaperService() {
                 return
             }
 
-            val frameStartNs = System.nanoTime()
 
             frameCount++
             if (frameCount <= 5 || frameCount % 300 == 0L) {
@@ -427,25 +420,6 @@ class Live2DWallpaperService : WallpaperService() {
                 }
             }
 
-            // --- Frame timing diagnostics (logcat only) ---
-            val preSwapNs = System.nanoTime()
-            val drawTimeMs = (preSwapNs - frameStartNs) / 1_000_000.0
-            val wallTimeMs = if (lastFrameNs > 0) (frameStartNs - lastFrameNs) / 1_000_000.0 else 0.0
-            lastFrameNs = frameStartNs
-
-            frameTimeAccumulatorMs += drawTimeMs
-            frameTimeSampleCount++
-            if (drawTimeMs > 18.0) slowFrameCount++
-
-            if (frameTimeSampleCount >= 120) {
-                val avgDrawMs = frameTimeAccumulatorMs / frameTimeSampleCount
-                val fps = if (wallTimeMs > 0) 1000.0 / wallTimeMs else 0.0
-                Log.d(TAG, "[$engineId] PERF: avgDraw=%.1fms slow=%d/%d fps≈%.0f"
-                    .format(avgDrawMs, slowFrameCount, frameTimeSampleCount, fps))
-                frameTimeAccumulatorMs = 0.0
-                frameTimeSampleCount = 0
-                slowFrameCount = 0
-            }
 
             if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
                 val err = EGL14.eglGetError()
