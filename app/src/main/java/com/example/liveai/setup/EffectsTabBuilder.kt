@@ -20,11 +20,7 @@ class EffectsTabBuilder(
     private val context: Context,
     private val postProcess: PostProcessFilter
 ) {
-    private val dp = context.resources.displayMetrics.density
-    private val padH = (16 * dp).toInt()
-    private val padV = (12 * dp).toInt()
-    private val textOnPanel = ContextCompat.getColor(context, R.color.text_on_panel)
-    private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
+    private val t = PanelTheme.from(context)
 
     /** Exposed so Reset All can update them. */
     var satSwitch: Switch? = null; private set
@@ -37,7 +33,7 @@ class EffectsTabBuilder(
     fun build(): LinearLayout {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padH, padV, padH, padV)
+            setPadding(t.padH, t.padV, t.padH, t.padV)
             visibility = View.GONE
         }
 
@@ -48,7 +44,7 @@ class EffectsTabBuilder(
         }
         val satSw = Switch(context).apply {
             text = "Saturation"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 13f
             isChecked = postProcess.isSaturationEnabled
             setOnCheckedChangeListener { _, checked ->
@@ -67,9 +63,9 @@ class EffectsTabBuilder(
             min = 0.0f,
             max = 3.0f,
             steps = 300,
-            dp = dp,
-            dimWhite = dimWhite,
-            textOnPanel = textOnPanel
+            dp = t.dp,
+            dimWhite = t.dimWhite,
+            textOnPanel = t.textOnPanel
         ) { value, _ ->
             postProcess.saturationAmount = value
         }
@@ -78,7 +74,7 @@ class EffectsTabBuilder(
 
         // Spacer
         content.addView(View(context), LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, (8 * dp).toInt()
+            LinearLayout.LayoutParams.MATCH_PARENT, (8 * t.dp).toInt()
         ))
 
         // Outline toggle + slider
@@ -88,7 +84,7 @@ class EffectsTabBuilder(
         }
         val outSw = Switch(context).apply {
             text = "Outline"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 13f
             isChecked = postProcess.isOutlineEnabled
             setOnCheckedChangeListener { _, checked ->
@@ -107,9 +103,9 @@ class EffectsTabBuilder(
             min = 0.0f,
             max = 100.0f,
             steps = 100,
-            dp = dp,
-            dimWhite = dimWhite,
-            textOnPanel = textOnPanel
+            dp = t.dp,
+            dimWhite = t.dimWhite,
+            textOnPanel = t.textOnPanel
         ) { value, _ ->
             postProcess.outlineThickness = value
         }
@@ -120,13 +116,13 @@ class EffectsTabBuilder(
         val colorRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, (6 * dp).toInt(), 0, (4 * dp).toInt())
+            setPadding(0, (6 * t.dp).toInt(), 0, (4 * t.dp).toInt())
         }
         val colorLabel = TextView(context).apply {
             text = "Color"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 13f
-            setPadding(0, 0, (12 * dp).toInt(), 0)
+            setPadding(0, 0, (12 * t.dp).toInt(), 0)
         }
         colorRow.addView(colorLabel)
 
@@ -148,13 +144,13 @@ class EffectsTabBuilder(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val btnSize = (28 * dp).toInt()
-        val btnMargin = (5 * dp).toInt()
+        val btnSize = (28 * t.dp).toInt()
+        val btnMargin = (5 * t.dp).toInt()
         for (preset in presets) {
             val btnShape = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(preset.color)
-                setStroke((1.5f * dp).toInt(), ContextCompat.getColor(context, R.color.panel_btn_outline))
+                setStroke((1.5f * t.dp).toInt(), ContextCompat.getColor(context, R.color.panel_btn_outline))
             }
             val colorBtn = View(context).apply {
                 background = btnShape

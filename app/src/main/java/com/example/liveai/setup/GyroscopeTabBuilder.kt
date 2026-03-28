@@ -14,8 +14,6 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import com.example.liveai.R
 import com.example.liveai.gyroscope.GyroAxis
 import com.example.liveai.gyroscope.GyroBinding
 import com.example.liveai.gyroscope.GyroMotionConfig
@@ -35,14 +33,7 @@ class GyroscopeTabBuilder(
     initialConfig: GyroMotionConfig,
     private val onConfigChanged: (GyroMotionConfig) -> Unit
 ) {
-    private val dp = context.resources.displayMetrics.density
-    private val padH = (16 * dp).toInt()
-    private val accentColor = ContextCompat.getColor(context, R.color.purple_200)
-    private val textOnPanel = ContextCompat.getColor(context, R.color.text_on_panel)
-    private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
-    private val dividerColor = ContextCompat.getColor(context, R.color.panel_divider)
-    private val panelBg = ContextCompat.getColor(context, R.color.panel_background)
-    private val dangerColor = 0xFFCC4444.toInt()
+    private val t = PanelTheme.from(context)
 
     private var enabled = initialConfig.enabled
     private val bindings = initialConfig.bindings.toMutableList()
@@ -69,7 +60,7 @@ class GyroscopeTabBuilder(
     fun build(): LinearLayout {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padH, (12 * dp).toInt(), padH, (12 * dp).toInt())
+            setPadding(t.padH, (12 * t.dp).toInt(), t.padH, (12 * t.dp).toInt())
             visibility = View.GONE
         }
         root = content
@@ -87,7 +78,7 @@ class GyroscopeTabBuilder(
         val enableRow = makeRow()
         val enableSwitch = Switch(context).apply {
             text = "Tilt Motion"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 13f
             isChecked = enabled
             setOnCheckedChangeListener { _, checked ->
@@ -117,7 +108,7 @@ class GyroscopeTabBuilder(
         }
 
         // Add button
-        container.addView(makePillButton("+ Add Parameter", Color.TRANSPARENT, textOnPanel) {
+        container.addView(makePillButton("+ Add Parameter", Color.TRANSPARENT, t.textOnPanel) {
             showParameterPicker()
         }, centredWrap(topMargin = 8))
     }
@@ -129,8 +120,8 @@ class GyroscopeTabBuilder(
         val axisSymbol = if (binding.axis == GyroAxis.TILT_X) "\u2194" else "\u2195"
         val axisBtn = TextView(context).apply {
             text = axisSymbol
-            textSize = 20f; setTextColor(accentColor)
-            setPadding((4 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+            textSize = 20f; setTextColor(t.accentColor)
+            setPadding((4 * t.dp).toInt(), 0, (8 * t.dp).toInt(), 0)
             isClickable = true
             setOnClickListener {
                 val newAxis = if (bindings[bindingIndex].axis == GyroAxis.TILT_X)
@@ -163,8 +154,8 @@ class GyroscopeTabBuilder(
 
         // Remove button
         row.addView(TextView(context).apply {
-            text = "\u2715"; textSize = 16f; setTextColor(dangerColor)
-            setPadding((12 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
+            text = "\u2715"; textSize = 16f; setTextColor(t.dangerColor)
+            setPadding((12 * t.dp).toInt(), (4 * t.dp).toInt(), (4 * t.dp).toInt(), (4 * t.dp).toInt())
             isClickable = true
             setOnClickListener {
                 bindings.removeAt(bindingIndex)
@@ -187,13 +178,13 @@ class GyroscopeTabBuilder(
 
         val searchField = makeRoundedEditText("").apply {
             hint = "Search..."
-            setHintTextColor(dimWhite)
+            setHintTextColor(t.dimWhite)
             textSize = 13f
         }
         container.addView(searchField, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, 0, (8 * dp).toInt()) })
+        ).apply { setMargins(0, 0, 0, (8 * t.dp).toInt()) })
 
         val existingIds = bindings.map { it.paramId }.toSet()
         val cellWrappers = mutableListOf<Pair<String, View>>()
@@ -238,7 +229,7 @@ class GyroscopeTabBuilder(
         displayName: String,
         alreadyAdded: Boolean
     ): View {
-        val cell = makeRow(hPad = padH, vPad = 10).apply {
+        val cell = makeRow(hPad = t.padH, vPad = 10).apply {
             isClickable = !alreadyAdded
             isFocusable = !alreadyAdded
             if (!alreadyAdded) {
@@ -251,7 +242,7 @@ class GyroscopeTabBuilder(
 
         cell.addView(TextView(context).apply {
             text = displayName
-            setTextColor(if (alreadyAdded) dimWhite else textOnPanel)
+            setTextColor(if (alreadyAdded) t.dimWhite else t.textOnPanel)
             textSize = 13f
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -304,15 +295,15 @@ class GyroscopeTabBuilder(
         row.addView(makeLabel("Tilt axis: ", size = 13f, bold = false, topPad = 0, bottomPad = 0))
 
         val btnX = makePillButton("\u2194 Roll (X)",
-            if (binding.axis == GyroAxis.TILT_X) accentColor else Color.TRANSPARENT, textOnPanel) {}
+            if (binding.axis == GyroAxis.TILT_X) t.accentColor else Color.TRANSPARENT, t.textOnPanel) {}
         val btnY = makePillButton("\u2195 Pitch (Y)",
-            if (binding.axis == GyroAxis.TILT_Y) accentColor else Color.TRANSPARENT, textOnPanel) {}
+            if (binding.axis == GyroAxis.TILT_Y) t.accentColor else Color.TRANSPARENT, t.textOnPanel) {}
 
         fun select(axis: GyroAxis) {
             (btnX.background as? GradientDrawable)
-                ?.setColor(if (axis == GyroAxis.TILT_X) accentColor else Color.TRANSPARENT)
+                ?.setColor(if (axis == GyroAxis.TILT_X) t.accentColor else Color.TRANSPARENT)
             (btnY.background as? GradientDrawable)
-                ?.setColor(if (axis == GyroAxis.TILT_Y) accentColor else Color.TRANSPARENT)
+                ?.setColor(if (axis == GyroAxis.TILT_Y) t.accentColor else Color.TRANSPARENT)
             bindings[editingBindingIndex] = bindings[editingBindingIndex].copy(axis = axis)
             notifyChanged()
         }
@@ -331,8 +322,8 @@ class GyroscopeTabBuilder(
 
         val btn = makePillButton(
             if (isInverted) "ON" else "OFF",
-            if (isInverted) accentColor else Color.TRANSPARENT,
-            textOnPanel
+            if (isInverted) t.accentColor else Color.TRANSPARENT,
+            t.textOnPanel
         ) {}
         btn.setOnClickListener {
             bindings[editingBindingIndex] = bindings[editingBindingIndex].copy(
@@ -350,9 +341,9 @@ class GyroscopeTabBuilder(
         val absScale = abs(binding.scale).roundToInt().coerceIn(1, 30)
         val label = TextView(context).apply {
             text = "Scale: ${absScale}°"
-            setTextColor(accentColor); textSize = 15f
+            setTextColor(t.accentColor); textSize = 15f
             setTypeface(null, Typeface.BOLD); gravity = Gravity.CENTER
-            setPadding(0, 0, 0, (4 * dp).toInt())
+            setPadding(0, 0, 0, (4 * t.dp).toInt())
         }
         layout.addView(label)
         layout.addView(makeHint("Maximum angle the parameter moves when fully tilted."))
@@ -383,59 +374,39 @@ class GyroscopeTabBuilder(
             id.contains("ahoge") || id.contains("kemono")
     }
 
-    private fun makeRow(
-        hPad: Int = 0,
-        vPad: Int = 0,
-        topPad: Int = vPad,
-        bottomPad: Int = vPad
-    ): LinearLayout = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(hPad, (topPad * dp).toInt(), hPad, (bottomPad * dp).toInt())
-    }
+    // Thin wrappers that delegate to SetupUiHelpers with theme values
 
-    private fun makeLabel(
-        text: String,
-        size: Float = 13f,
-        bold: Boolean = true,
-        topPad: Int = 8,
-        bottomPad: Int = 4
-    ): TextView = TextView(context).apply {
-        this.text = text
-        setTextColor(textOnPanel)
-        textSize = size
-        if (bold) setTypeface(null, Typeface.BOLD)
-        setPadding(0, (topPad * dp).toInt(), 0, (bottomPad * dp).toInt())
-    }
+    private fun makeRow(hPad: Int = 0, vPad: Int = 0, topPad: Int = vPad, bottomPad: Int = vPad) =
+        SetupUiHelpers.makeRow(context, t.dp, hPad, vPad, topPad, bottomPad)
 
-    private fun makeHint(
-        text: String,
-        topPad: Int = 0,
-        bottomPad: Int = 4
-    ): TextView = TextView(context).apply {
-        this.text = text
-        setTextColor(dimWhite)
-        textSize = 11f
-        setPadding(0, (topPad * dp).toInt(), 0, (bottomPad * dp).toInt())
-    }
+    private fun makeLabel(text: String, size: Float = 13f, bold: Boolean = true, topPad: Int = 8, bottomPad: Int = 4) =
+        SetupUiHelpers.makeLabel(context, text, t.textOnPanel, t.dp, size, bold, topPad, bottomPad)
 
-    private fun makeTextButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        text = label; setTextColor(accentColor); textSize = 14f
-        setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-        isClickable = true; isFocusable = true
-        setOnClickListener { onClick() }
-    }
+    private fun makeHint(text: String, topPad: Int = 0, bottomPad: Int = 4) =
+        SetupUiHelpers.makeHint(context, text, t.dimWhite, t.dp, Int.MAX_VALUE, topPad, bottomPad)
+
+    private fun makeTextButton(label: String, onClick: () -> Unit) =
+        SetupUiHelpers.makeTextButton(context, label, t.accentColor, t.dp, onClick)
+
+    private fun makePillButton(label: String, fillColor: Int, textColor: Int, onClick: () -> Unit) =
+        SetupUiHelpers.makePillButton(context, label, fillColor, textColor, t.dp, onClick)
+
+    private fun makeDivider() =
+        SetupUiHelpers.makeDivider(context, t.dividerColor, t.dp)
+
+    private fun wrapWithDivider(view: View) =
+        SetupUiHelpers.wrapWithDivider(context, view, t.dividerColor, t.dp)
 
     private fun makeRoundedEditText(initialText: String): EditText = EditText(context).apply {
         setText(initialText)
-        setTextColor(textOnPanel)
+        setTextColor(t.textOnPanel)
         textSize = 13f
         background = GradientDrawable().apply {
-            setColor(panelBg)
-            cornerRadius = 8 * dp
-            setStroke((1 * dp).toInt(), dividerColor)
+            setColor(t.panelBg)
+            cornerRadius = 8 * t.dp
+            setStroke((1 * t.dp).toInt(), t.dividerColor)
         }
-        setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+        setPadding(t.padH, (8 * t.dp).toInt(), t.padH, (8 * t.dp).toInt())
         isSingleLine = true
     }
 
@@ -443,7 +414,7 @@ class GyroscopeTabBuilder(
         SeekBar(context).apply {
             this.max = max
             this.progress = progress
-            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
+            setPadding(t.padH, (4 * t.dp).toInt(), t.padH, (12 * t.dp).toInt())
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                     if (fromUser) onChanged(value)
@@ -453,42 +424,14 @@ class GyroscopeTabBuilder(
             })
         }
 
-    private fun makePillButton(
-        label: String, fillColor: Int, textColor: Int, onClick: () -> Unit
-    ): Button = Button(context).apply {
-        text = label; setTextColor(textColor); textSize = 13f; isAllCaps = false
-        val outlineColor = ContextCompat.getColor(context, R.color.panel_btn_outline)
-        background = GradientDrawable().apply {
-            cornerRadius = 24 * dp; setColor(fillColor)
-            if (fillColor == Color.TRANSPARENT) setStroke((1.5f * dp).toInt(), outlineColor)
-        }
-        setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
-        minHeight = 0; minimumHeight = 0; stateListAnimator = null
-        setOnClickListener { onClick() }
-    }
-
-    private fun makeDivider(): View = View(context).apply {
-        setBackgroundColor(dividerColor)
-        layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
-        ).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) }
-    }
-
-    private fun wrapWithDivider(view: View): View = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        addView(view)
-        addView(View(context).apply { setBackgroundColor(dividerColor) },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()))
-    }
-
     private fun wrapWithMarginEnd(marginDp: Int) = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-    ).apply { setMargins(0, 0, (marginDp * dp).toInt(), 0) }
+    ).apply { setMargins(0, 0, (marginDp * t.dp).toInt(), 0) }
 
     private fun centredWrap(topMargin: Int = 0) = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
     ).apply {
         gravity = Gravity.CENTER_HORIZONTAL
-        setMargins(0, (topMargin * dp).toInt(), 0, 0)
+        setMargins(0, (topMargin * t.dp).toInt(), 0, 0)
     }
 }

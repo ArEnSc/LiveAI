@@ -7,15 +7,14 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import com.example.liveai.R
 import com.example.liveai.live2d.LAppLive2DManager
+import com.example.liveai.setup.PanelTheme
+import com.example.liveai.setup.SetupUiHelpers
 import java.util.UUID
 
 /**
@@ -42,15 +41,7 @@ class ZoneEditorController(
     private var regionOverlay: ZoneVisualOverlayView? = null
     private var regionsVisible = false
 
-    // Styling constants
-    private val dp = context.resources.displayMetrics.density
-    private val padH = (16 * dp).toInt()
-    private val accentColor = ContextCompat.getColor(context, R.color.purple_200)
-    private val textOnPanel = ContextCompat.getColor(context, R.color.text_on_panel)
-    private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
-    private val dividerColor = ContextCompat.getColor(context, R.color.panel_divider)
-    private val panelBg = ContextCompat.getColor(context, R.color.panel_background)
-    private val dangerColor = 0xFFCC4444.toInt()
+    private val t = PanelTheme.from(context)
 
     private var zones = ZoneRepository.loadZones(context).toMutableList()
 
@@ -120,14 +111,14 @@ class ZoneEditorController(
 
         val toggleBtn = makePillButton(
             if (regionsVisible) "ON" else "OFF",
-            if (regionsVisible) accentColor else Color.TRANSPARENT,
-            textOnPanel
+            if (regionsVisible) t.accentColor else Color.TRANSPARENT,
+            t.textOnPanel
         ) {}
         toggleBtn.setOnClickListener {
             regionsVisible = !regionsVisible
             toggleBtn.text = if (regionsVisible) "ON" else "OFF"
             (toggleBtn.background as? GradientDrawable)
-                ?.setColor(if (regionsVisible) accentColor else Color.TRANSPARENT)
+                ?.setColor(if (regionsVisible) t.accentColor else Color.TRANSPARENT)
             if (regionsVisible) showRegionOverlay() else hideRegionOverlay()
         }
         row.addView(toggleBtn)
@@ -136,9 +127,9 @@ class ZoneEditorController(
 
     private fun buildZoneListButtons(): View {
         val row = makeRow(topPad = 12)
-        row.addView(makePillButton("+ Add Zone", Color.TRANSPARENT, textOnPanel) { addNewZone() },
+        row.addView(makePillButton("+ Add Zone", Color.TRANSPARENT, t.textOnPanel) { addNewZone() },
             wrapWithMarginEnd(8))
-        row.addView(makePillButton("Reset Zones", dangerColor, textOnPanel) {
+        row.addView(makePillButton("Reset Zones", t.dangerColor, t.textOnPanel) {
             zones.clear()
             zones.addAll(ZoneRepository.createDefaultZones())
             saveZones()
@@ -148,21 +139,21 @@ class ZoneEditorController(
     }
 
     private fun buildZoneCard(zone: InteractionZone, index: Int): View {
-        val card = makeRow(hPad = padH, vPad = 12).apply {
+        val card = makeRow(hPad = t.padH, vPad = 12).apply {
             isClickable = true
             isFocusable = true
             setOnClickListener { openZoneDetail(index) }
         }
 
         // Color dot
-        val dotSize = (12 * dp).toInt()
+        val dotSize = (12 * t.dp).toInt()
         val dot = View(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(zone.color)
             }
             layoutParams = LinearLayout.LayoutParams(dotSize, dotSize).apply {
-                setMargins(0, 0, (10 * dp).toInt(), 0)
+                setMargins(0, 0, (10 * t.dp).toInt(), 0)
             }
         }
         card.addView(dot)
@@ -178,7 +169,7 @@ class ZoneEditorController(
 
         // Chevron
         card.addView(TextView(context).apply {
-            text = "\u203A"; setTextColor(dimWhite); textSize = 18f
+            text = "\u203A"; setTextColor(t.dimWhite); textSize = 18f
         })
 
         return wrapWithDivider(card)
@@ -197,7 +188,7 @@ class ZoneEditorController(
             dismissOverlay(); saveZones(); buildZoneList()
         })
         detail.addView(buildZoneNameField(zone))
-        detail.addView(makePillButton("Position Rectangle", accentColor, textOnPanel) {
+        detail.addView(makePillButton("Position Rectangle", t.accentColor, t.textOnPanel) {
             showZoneOverlay(editingZoneIndex)
         }, centredWrap(topMargin = 4, bottomMargin = 12))
         detail.addView(buildSensitivitySection(zone))
@@ -205,7 +196,7 @@ class ZoneEditorController(
         detail.addView(buildBindingsSection(zone))
         detail.addView(makeDivider(topMargin = 16))
         if (zone.core) {
-            detail.addView(makePillButton("Reset to Default", Color.TRANSPARENT, textOnPanel) {
+            detail.addView(makePillButton("Reset to Default", Color.TRANSPARENT, t.textOnPanel) {
                 val defaults = ZoneRepository.createDefaultZones()
                 val defaultZone = defaults.firstOrNull { it.name == zone.name }
                 if (defaultZone != null) {
@@ -214,7 +205,7 @@ class ZoneEditorController(
                 }
             }, centredWrap())
         } else {
-            detail.addView(makePillButton("Delete Zone", dangerColor, textOnPanel) {
+            detail.addView(makePillButton("Delete Zone", t.dangerColor, t.textOnPanel) {
                 zones.removeAt(editingZoneIndex); dismissOverlay(); saveZones(); buildZoneList()
             }, centredWrap())
         }
@@ -230,13 +221,12 @@ class ZoneEditorController(
                 if (!hasFocus) updateZone { it.copy(name = text.toString().trim()) }
             }
         }.let { field ->
-            // Wrap in a layout with margins
             LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(field, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
+                ).apply { setMargins(0, (8 * t.dp).toInt(), 0, (8 * t.dp).toInt()) })
             }
         }
     }
@@ -264,7 +254,7 @@ class ZoneEditorController(
             layout.addView(buildBindingRow(binding, bi))
         }
 
-        layout.addView(makePillButton("+ Add Parameter", Color.TRANSPARENT, textOnPanel) {
+        layout.addView(makePillButton("+ Add Parameter", Color.TRANSPARENT, t.textOnPanel) {
             openParameterPicker()
         }, centredWrap(topMargin = 8))
 
@@ -277,8 +267,8 @@ class ZoneEditorController(
         // Axis toggle
         val axisBtn = TextView(context).apply {
             text = binding.axis.symbol
-            textSize = 20f; setTextColor(accentColor)
-            setPadding((4 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+            textSize = 20f; setTextColor(t.accentColor)
+            setPadding((4 * t.dp).toInt(), 0, (8 * t.dp).toInt(), 0)
             isClickable = true
             setOnClickListener {
                 val newAxis = binding.axis.toggled
@@ -300,8 +290,8 @@ class ZoneEditorController(
 
         // Remove button
         row.addView(TextView(context).apply {
-            text = "\u2715"; textSize = 16f; setTextColor(dangerColor)
-            setPadding((12 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
+            text = "\u2715"; textSize = 16f; setTextColor(t.dangerColor)
+            setPadding((12 * t.dp).toInt(), (4 * t.dp).toInt(), (4 * t.dp).toInt(), (4 * t.dp).toInt())
             isClickable = true
             setOnClickListener {
                 updateZone { z ->
@@ -338,15 +328,15 @@ class ZoneEditorController(
         row.addView(makeLabel("Drag axis: ", size = 13f, bold = false, topPad = 0, bottomPad = 0))
 
         val btnH = makePillButton("\u2194 Horizontal",
-            if (binding.axis == DragAxis.HORIZONTAL) accentColor else Color.TRANSPARENT, textOnPanel) {}
+            if (binding.axis == DragAxis.HORIZONTAL) t.accentColor else Color.TRANSPARENT, t.textOnPanel) {}
         val btnV = makePillButton("\u2195 Vertical",
-            if (binding.axis == DragAxis.VERTICAL) accentColor else Color.TRANSPARENT, textOnPanel) {}
+            if (binding.axis == DragAxis.VERTICAL) t.accentColor else Color.TRANSPARENT, t.textOnPanel) {}
 
         fun select(axis: DragAxis) {
             (btnH.background as? GradientDrawable)
-                ?.setColor(if (axis == DragAxis.HORIZONTAL) accentColor else Color.TRANSPARENT)
+                ?.setColor(if (axis == DragAxis.HORIZONTAL) t.accentColor else Color.TRANSPARENT)
             (btnV.background as? GradientDrawable)
-                ?.setColor(if (axis == DragAxis.VERTICAL) accentColor else Color.TRANSPARENT)
+                ?.setColor(if (axis == DragAxis.VERTICAL) t.accentColor else Color.TRANSPARENT)
             updateBinding { it.copy(axis = axis) }
         }
         btnH.setOnClickListener { select(DragAxis.HORIZONTAL) }
@@ -364,12 +354,11 @@ class ZoneEditorController(
 
         val btn = makePillButton(
             if (isInverted) "ON" else "OFF",
-            if (isInverted) accentColor else Color.TRANSPARENT,
-            textOnPanel
+            if (isInverted) t.accentColor else Color.TRANSPARENT,
+            t.textOnPanel
         ) {}
         btn.setOnClickListener {
             updateBinding { it.copy(strength = -it.strength) }
-            // Refresh the editor to update the strength slider
             openBindingEditor(editingBindingIndex)
         }
         row.addView(btn)
@@ -380,9 +369,9 @@ class ZoneEditorController(
         val layout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         val label = TextView(context).apply {
             text = "Strength: ${(binding.strength * 100).toInt()}%"
-            setTextColor(accentColor); textSize = 15f
+            setTextColor(t.accentColor); textSize = 15f
             setTypeface(null, Typeface.BOLD); gravity = Gravity.CENTER
-            setPadding(0, 0, 0, (4 * dp).toInt())
+            setPadding(0, 0, 0, (4 * t.dp).toInt())
         }
         layout.addView(label)
         layout.addView(makeSeekBar(max = 200,
@@ -420,11 +409,11 @@ class ZoneEditorController(
         picker.addView(makeLabel("Choose a parameter", size = 14f))
 
         val searchField = makeRoundedEditText("").apply {
-            hint = "Search..."; setHintTextColor(dimWhite); textSize = 13f
+            hint = "Search..."; setHintTextColor(t.dimWhite); textSize = 13f
         }
         picker.addView(searchField, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(0, 0, 0, (8 * dp).toInt()) })
+        ).apply { setMargins(0, 0, 0, (8 * t.dp).toInt()) })
 
         val cellWrappers = mutableListOf<Pair<String, View>>()
         for (param in params) {
@@ -450,7 +439,7 @@ class ZoneEditorController(
     }
 
     private fun buildParameterCell(param: LAppLive2DManager.ParameterInfo, alreadyAdded: Boolean): View {
-        val cell = makeRow(hPad = padH, vPad = 10).apply {
+        val cell = makeRow(hPad = t.padH, vPad = 10).apply {
             isClickable = !alreadyAdded
             isFocusable = !alreadyAdded
             if (!alreadyAdded) {
@@ -463,7 +452,7 @@ class ZoneEditorController(
 
         cell.addView(TextView(context).apply {
             text = param.displayName
-            setTextColor(if (alreadyAdded) dimWhite else textOnPanel)
+            setTextColor(if (alreadyAdded) t.dimWhite else t.textOnPanel)
             textSize = 13f
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -541,12 +530,12 @@ class ZoneEditorController(
 
         val btnRow = makeRow().apply { tag = "zone_overlay_done_btn" }
 
-        btnRow.addView(makePillButton("Cancel", Color.TRANSPARENT, textOnPanel) {
+        btnRow.addView(makePillButton("Cancel", Color.TRANSPARENT, t.textOnPanel) {
             overlayPreEditRect?.let { zones[index] = zones[index].copy(rect = it) }
             dismissOverlay()
         }, wrapWithMarginEnd(6))
 
-        btnRow.addView(makePillButton("Centre", Color.TRANSPARENT, textOnPanel) {
+        btnRow.addView(makePillButton("Centre", Color.TRANSPARENT, t.textOnPanel) {
             val screenCentre = ZoneTransform.screenToModel(
                 RectF(0.5f, 0.5f, 0.5f, 0.5f), modelScale, modelOffsetX, modelOffsetY
             )
@@ -561,7 +550,7 @@ class ZoneEditorController(
             showZoneOverlay(index)
         }, wrapWithMarginEnd(6))
 
-        btnRow.addView(makePillButton("Done", accentColor, textOnPanel) {
+        btnRow.addView(makePillButton("Done", t.accentColor, t.textOnPanel) {
             overlayPreEditRect = null; dismissOverlay(); saveZones()
         })
 
@@ -570,7 +559,7 @@ class ZoneEditorController(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = (48 * dp).toInt()
+            topMargin = (48 * t.dp).toInt()
         })
     }
 
@@ -613,56 +602,39 @@ class ZoneEditorController(
         refreshRegionOverlay()
     }
 
-    // ── UI Factory Helpers ──────────────────────────────────────────────
+    // ── UI Factory Helpers (thin wrappers delegating to SetupUiHelpers) ─
 
-    private fun makeRow(
-        hPad: Int = 0,
-        vPad: Int = 0,
-        topPad: Int = vPad,
-        bottomPad: Int = vPad
-    ): LinearLayout = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(hPad, (topPad * dp).toInt(), hPad, (bottomPad * dp).toInt())
-    }
+    private fun makeRow(hPad: Int = 0, vPad: Int = 0, topPad: Int = vPad, bottomPad: Int = vPad) =
+        SetupUiHelpers.makeRow(context, t.dp, hPad, vPad, topPad, bottomPad)
 
-    private fun makeLabel(
-        text: String,
-        size: Float = 13f,
-        bold: Boolean = true,
-        topPad: Int = 8,
-        bottomPad: Int = 4
-    ): TextView = TextView(context).apply {
-        this.text = text
-        setTextColor(textOnPanel)
-        textSize = size
-        if (bold) setTypeface(null, Typeface.BOLD)
-        setPadding(0, (topPad * dp).toInt(), 0, (bottomPad * dp).toInt())
-    }
+    private fun makeLabel(text: String, size: Float = 13f, bold: Boolean = true, topPad: Int = 8, bottomPad: Int = 4) =
+        SetupUiHelpers.makeLabel(context, text, t.textOnPanel, t.dp, size, bold, topPad, bottomPad)
 
-    private fun makeHint(
-        text: String,
-        maxLines: Int = Int.MAX_VALUE,
-        topPad: Int = 0,
-        bottomPad: Int = 4
-    ): TextView = TextView(context).apply {
-        this.text = text
-        setTextColor(dimWhite)
-        textSize = 11f
-        this.maxLines = maxLines
-        setPadding(0, (topPad * dp).toInt(), 0, (bottomPad * dp).toInt())
-    }
+    private fun makeHint(text: String, maxLines: Int = Int.MAX_VALUE, topPad: Int = 0, bottomPad: Int = 4) =
+        SetupUiHelpers.makeHint(context, text, t.dimWhite, t.dp, maxLines, topPad, bottomPad)
+
+    private fun makeTextButton(label: String, onClick: () -> Unit) =
+        SetupUiHelpers.makeTextButton(context, label, t.accentColor, t.dp, onClick)
+
+    private fun makePillButton(label: String, fillColor: Int, textColor: Int, onClick: () -> Unit) =
+        SetupUiHelpers.makePillButton(context, label, fillColor, textColor, t.dp, onClick)
+
+    private fun makeDivider(topMargin: Int = (8 * t.dp).toInt()) =
+        SetupUiHelpers.makeDivider(context, t.dividerColor, t.dp, topMargin)
+
+    private fun wrapWithDivider(view: View) =
+        SetupUiHelpers.wrapWithDivider(context, view, t.dividerColor, t.dp)
 
     private fun makeRoundedEditText(initialText: String): EditText = EditText(context).apply {
         setText(initialText)
-        setTextColor(textOnPanel)
+        setTextColor(t.textOnPanel)
         textSize = 13f
         background = GradientDrawable().apply {
-            setColor(panelBg)
-            cornerRadius = 8 * dp
-            setStroke((1 * dp).toInt(), dividerColor)
+            setColor(t.panelBg)
+            cornerRadius = 8 * t.dp
+            setStroke((1 * t.dp).toInt(), t.dividerColor)
         }
-        setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+        setPadding(t.padH, (8 * t.dp).toInt(), t.padH, (8 * t.dp).toInt())
         isSingleLine = true
     }
 
@@ -670,7 +642,7 @@ class ZoneEditorController(
         SeekBar(context).apply {
             this.max = max
             this.progress = progress
-            setPadding(padH, (4 * dp).toInt(), padH, (12 * dp).toInt())
+            setPadding(t.padH, (4 * t.dp).toInt(), t.padH, (12 * t.dp).toInt())
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                     if (fromUser) onChanged(value)
@@ -680,50 +652,15 @@ class ZoneEditorController(
             })
         }
 
-    private fun makePillButton(
-        label: String, fillColor: Int, textColor: Int, onClick: () -> Unit
-    ): Button = Button(context).apply {
-        text = label; setTextColor(textColor); textSize = 13f; isAllCaps = false
-        val outlineColor = ContextCompat.getColor(context, R.color.panel_btn_outline)
-        background = GradientDrawable().apply {
-            cornerRadius = 24 * dp; setColor(fillColor)
-            if (fillColor == Color.TRANSPARENT) setStroke((1.5f * dp).toInt(), outlineColor)
-        }
-        setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
-        minHeight = 0; minimumHeight = 0; stateListAnimator = null
-        setOnClickListener { onClick() }
-    }
-
-    private fun makeTextButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        text = label; setTextColor(accentColor); textSize = 14f
-        setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-        isClickable = true; isFocusable = true
-        setOnClickListener { onClick() }
-    }
-
-    private fun makeDivider(topMargin: Int = (8 * dp).toInt()): View = View(context).apply {
-        setBackgroundColor(dividerColor)
-        layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
-        ).apply { setMargins(0, topMargin, 0, (8 * dp).toInt()) }
-    }
-
-    private fun wrapWithDivider(view: View): View = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        addView(view)
-        addView(View(context).apply { setBackgroundColor(dividerColor) },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()))
-    }
-
     private fun wrapWithMarginEnd(marginDp: Int) = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-    ).apply { setMargins(0, 0, (marginDp * dp).toInt(), 0) }
+    ).apply { setMargins(0, 0, (marginDp * t.dp).toInt(), 0) }
 
     private fun centredWrap(topMargin: Int = 0, bottomMargin: Int = 0) = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
     ).apply {
         gravity = Gravity.CENTER_HORIZONTAL
-        setMargins(0, (topMargin * dp).toInt(), 0, (bottomMargin * dp).toInt())
+        setMargins(0, (topMargin * t.dp).toInt(), 0, (bottomMargin * t.dp).toInt())
     }
 }
 

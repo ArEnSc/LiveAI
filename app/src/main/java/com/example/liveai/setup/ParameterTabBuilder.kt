@@ -26,13 +26,7 @@ class ParameterTabBuilder(
     private val glSurfaceView: () -> GLSurfaceView?,
     private val live2DManager: () -> LAppLive2DManager?
 ) {
-    private val dp = context.resources.displayMetrics.density
-    private val padH = (16 * dp).toInt()
-    private val padV = (12 * dp).toInt()
-    private val accentColor = ContextCompat.getColor(context, R.color.purple_200)
-    private val textOnPanel = ContextCompat.getColor(context, R.color.text_on_panel)
-    private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
-    private val dividerColor = ContextCompat.getColor(context, R.color.panel_divider)
+    private val t = PanelTheme.from(context)
 
     /** The container view — add to content host. */
     var container: LinearLayout? = null; private set
@@ -42,12 +36,12 @@ class ParameterTabBuilder(
     fun buildPlaceholder(): LinearLayout {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padH, padV, padH, padV)
+            setPadding(t.padH, t.padV, t.padH, t.padV)
             visibility = View.GONE
         }
         val loadingLabel = TextView(context).apply {
             text = "Loading model parameters..."
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 13f
         }
         content.addView(loadingLabel)
@@ -76,22 +70,22 @@ class ParameterTabBuilder(
         // Search field
         val searchField = EditText(context).apply {
             hint = "Search parameters..."
-            setHintTextColor(dimWhite)
-            setTextColor(textOnPanel)
+            setHintTextColor(t.dimWhite)
+            setTextColor(t.textOnPanel)
             textSize = 13f
             background = GradientDrawable().apply {
                 setColor(ContextCompat.getColor(context, R.color.panel_background))
-                cornerRadius = 8 * dp
-                setStroke((1 * dp).toInt(), dividerColor)
+                cornerRadius = 8 * t.dp
+                setStroke((1 * t.dp).toInt(), t.dividerColor)
             }
-            setPadding(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+            setPadding(t.padH, (8 * t.dp).toInt(), t.padH, (8 * t.dp).toInt())
             isSingleLine = true
         }
         listView.addView(searchField, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply {
-            setMargins(padH, (8 * dp).toInt(), padH, (8 * dp).toInt())
+            setMargins(t.padH, (8 * t.dp).toInt(), t.padH, (8 * t.dp).toInt())
         })
 
         // Editor view (hidden initially)
@@ -117,14 +111,14 @@ class ParameterTabBuilder(
             val cell = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(padH, (12 * dp).toInt(), padH, (12 * dp).toInt())
+                setPadding(t.padH, (12 * t.dp).toInt(), t.padH, (12 * t.dp).toInt())
                 isClickable = true
                 isFocusable = true
             }
 
             val nameLabel = TextView(context).apply {
                 text = param.displayName
-                setTextColor(if (hasOverride) textOnPanel else dimWhite)
+                setTextColor(if (hasOverride) t.textOnPanel else t.dimWhite)
                 textSize = 13f
                 setTypeface(null, if (hasOverride) Typeface.BOLD else Typeface.NORMAL)
             }
@@ -132,7 +126,7 @@ class ParameterTabBuilder(
 
             val cellValue = TextView(context).apply {
                 text = "%.2f".format(initialValue)
-                setTextColor(if (hasOverride) accentColor else dimWhite)
+                setTextColor(if (hasOverride) t.accentColor else t.dimWhite)
                 textSize = 13f
                 gravity = Gravity.END
             }
@@ -140,17 +134,17 @@ class ParameterTabBuilder(
 
             val chevron = TextView(context).apply {
                 text = "  \u203A"
-                setTextColor(dimWhite)
+                setTextColor(t.dimWhite)
                 textSize = 16f
             }
             cell.addView(chevron)
 
-            val divider = View(context).apply { setBackgroundColor(dividerColor) }
+            val divider = View(context).apply { setBackgroundColor(t.dividerColor) }
             val cellWrapper = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(cell)
                 addView(divider, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
+                    LinearLayout.LayoutParams.MATCH_PARENT, (1 * t.dp).toInt()
                 ))
             }
 
@@ -198,32 +192,32 @@ class ParameterTabBuilder(
 
         val title = TextView(context).apply {
             text = param.displayName
-            setTextColor(textOnPanel)
+            setTextColor(t.textOnPanel)
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setPadding(padH, (12 * dp).toInt(), padH, (4 * dp).toInt())
+            setPadding(t.padH, (12 * t.dp).toInt(), t.padH, (4 * t.dp).toInt())
         }
         editor.addView(title)
 
         val valueDisplay = TextView(context).apply {
             text = "%.2f".format(currentValue)
-            setTextColor(accentColor)
+            setTextColor(t.accentColor)
             textSize = 22f
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(padH, (4 * dp).toInt(), padH, (8 * dp).toInt())
+            setPadding(t.padH, (4 * t.dp).toInt(), t.padH, (8 * t.dp).toInt())
         }
         editor.addView(valueDisplay)
 
         val sliderRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(padH, 0, padH, (4 * dp).toInt())
+            setPadding(t.padH, 0, t.padH, (4 * t.dp).toInt())
         }
 
         val minLabel = TextView(context).apply {
             text = "%.1f".format(param.min)
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 11f
         }
         sliderRow.addView(minLabel)
@@ -249,20 +243,20 @@ class ParameterTabBuilder(
 
         val maxLabel = TextView(context).apply {
             text = "%.1f".format(param.max)
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 11f
         }
         sliderRow.addView(maxLabel)
         editor.addView(sliderRow)
 
-        editor.addView(View(context).apply { setBackgroundColor(dividerColor) }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, (1 * dp).toInt()
-        ).apply { topMargin = (8 * dp).toInt() })
+        editor.addView(View(context).apply { setBackgroundColor(t.dividerColor) }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (1 * t.dp).toInt()
+        ).apply { topMargin = (8 * t.dp).toInt() })
 
         val btnRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(padH, (10 * dp).toInt(), padH, (8 * dp).toInt())
+            setPadding(t.padH, (10 * t.dp).toInt(), t.padH, (8 * t.dp).toInt())
         }
 
         fun closeEditor() {
@@ -281,23 +275,23 @@ class ParameterTabBuilder(
                 .start()
         }
 
-        val btnReset = SetupUiHelpers.makePillButton(context, "Reset", Color.TRANSPARENT, dimWhite, dp) {
+        val btnReset = SetupUiHelpers.makePillButton(context, "Reset", Color.TRANSPARENT, t.dimWhite, t.dp) {
             paramOverrides.remove(param.id)
             slider.progress = ((param.defaultValue - param.min) / range * steps).toInt()
             valueDisplay.text = "%.2f".format(param.defaultValue)
-            nameLabel.setTextColor(dimWhite)
+            nameLabel.setTextColor(t.dimWhite)
             nameLabel.setTypeface(null, Typeface.NORMAL)
             cellValue.text = "%.2f".format(param.defaultValue)
-            cellValue.setTextColor(dimWhite)
+            cellValue.setTextColor(t.dimWhite)
             glSurfaceView()?.queueEvent {
                 live2DManager()?.clearParameterOverride(param.id)
             }
             closeEditor()
         }
         btnRow.addView(btnReset, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            .apply { setMargins((2 * dp).toInt(), 0, (2 * dp).toInt(), 0) })
+            .apply { setMargins((2 * t.dp).toInt(), 0, (2 * t.dp).toInt(), 0) })
 
-        val btnCancel = SetupUiHelpers.makePillButton(context, "Cancel", Color.TRANSPARENT, dimWhite, dp) {
+        val btnCancel = SetupUiHelpers.makePillButton(context, "Cancel", Color.TRANSPARENT, t.dimWhite, t.dp) {
             if (valueBefore == param.defaultValue && !paramOverrides.containsKey(param.id)) {
                 glSurfaceView()?.queueEvent {
                     live2DManager()?.clearParameterOverride(param.id)
@@ -312,20 +306,20 @@ class ParameterTabBuilder(
             closeEditor()
         }
         btnRow.addView(btnCancel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            .apply { setMargins((2 * dp).toInt(), 0, (2 * dp).toInt(), 0) })
+            .apply { setMargins((2 * t.dp).toInt(), 0, (2 * t.dp).toInt(), 0) })
 
-        val btnDone = SetupUiHelpers.makePillButton(context, "Done", accentColor, textOnPanel, dp) {
+        val btnDone = SetupUiHelpers.makePillButton(context, "Done", t.accentColor, t.textOnPanel, t.dp) {
             val finalValue = paramOverrides[param.id]
             if (finalValue != null) {
                 cellValue.text = "%.2f".format(finalValue)
-                cellValue.setTextColor(accentColor)
-                nameLabel.setTextColor(textOnPanel)
+                cellValue.setTextColor(t.accentColor)
+                nameLabel.setTextColor(t.textOnPanel)
                 nameLabel.setTypeface(null, Typeface.BOLD)
             }
             closeEditor()
         }
         btnRow.addView(btnDone, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            .apply { setMargins((2 * dp).toInt(), 0, (2 * dp).toInt(), 0) })
+            .apply { setMargins((2 * t.dp).toInt(), 0, (2 * t.dp).toInt(), 0) })
 
         editor.addView(btnRow)
 

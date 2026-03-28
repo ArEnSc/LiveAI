@@ -9,8 +9,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Switch
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import com.example.liveai.R
 import com.example.liveai.audio.AudioVolumeSource
 
 /**
@@ -26,11 +24,7 @@ class AudioTabBuilder(
     private val onIntensityChanged: (Float) -> Unit,
     private val onSpeedChanged: (Float) -> Unit
 ) {
-    private val dp = context.resources.displayMetrics.density
-    private val padH = (16 * dp).toInt()
-    private val padV = (12 * dp).toInt()
-    private val textOnPanel = ContextCompat.getColor(context, R.color.text_on_panel)
-    private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
+    private val t = PanelTheme.from(context)
 
     private var enabled = initialEnabled
     private var intensity = initialIntensity
@@ -49,7 +43,7 @@ class AudioTabBuilder(
     fun build(): LinearLayout {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padH, padV, padH, padV)
+            setPadding(t.padH, t.padV, t.padH, t.padV)
             visibility = View.GONE
         }
 
@@ -59,7 +53,7 @@ class AudioTabBuilder(
         }
         val audioSwitch = Switch(context).apply {
             text = "Enabled"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 13f
             isChecked = enabled
             setOnCheckedChangeListener { _, checked ->
@@ -77,9 +71,9 @@ class AudioTabBuilder(
 
         val volumeLabel = TextView(context).apply {
             text = "0%"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 12f
-            setPadding((8 * dp).toInt(), 0, 0, 0)
+            setPadding((8 * t.dp).toInt(), 0, 0, 0)
         }
         audioRow.addView(volumeLabel)
         content.addView(audioRow)
@@ -105,9 +99,9 @@ class AudioTabBuilder(
             min = 0.0f,
             max = 3.0f,
             steps = 300,
-            dp = dp,
-            dimWhite = dimWhite,
-            textOnPanel = textOnPanel
+            dp = t.dp,
+            dimWhite = t.dimWhite,
+            textOnPanel = t.textOnPanel
         ) { value, _ ->
             intensity = value
             onIntensityChanged(value)
@@ -122,9 +116,9 @@ class AudioTabBuilder(
             min = 0.0f,
             max = 3.0f,
             steps = 300,
-            dp = dp,
-            dimWhite = dimWhite,
-            textOnPanel = textOnPanel
+            dp = t.dp,
+            dimWhite = t.dimWhite,
+            textOnPanel = t.textOnPanel
         ) { value, _ ->
             speed = value
             onSpeedChanged(value)

@@ -16,8 +16,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import com.example.liveai.R
 import com.example.liveai.agent.tts.PocketTtsProvider
 import com.example.liveai.live2d.LAppLive2DManager
 import com.example.liveai.live2d.LAppModel
@@ -41,12 +39,7 @@ class TtsTabBuilder(
         private const val TAG = "TtsTabBuilder"
     }
 
-    private val dp = context.resources.displayMetrics.density
-    private val padH = (16 * dp).toInt()
-    private val padV = (12 * dp).toInt()
-    private val textOnPanel = ContextCompat.getColor(context, R.color.text_on_panel)
-    private val dimWhite = ContextCompat.getColor(context, R.color.text_on_panel_dim)
-    private val hintColor = ContextCompat.getColor(context, R.color.text_on_panel_hint)
+    private val t = PanelTheme.from(context)
 
     private var statusLabel: TextView? = null
     private var generateBtn: View? = null
@@ -223,7 +216,7 @@ class TtsTabBuilder(
     fun build(): LinearLayout {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padH, padV, padH, padV)
+            setPadding(t.padH, t.padV, t.padH, t.padV)
             visibility = View.GONE
         }
 
@@ -233,19 +226,19 @@ class TtsTabBuilder(
         // Text input
         val input = EditText(context).apply {
             hint = "Type something to speak..."
-            setHintTextColor(hintColor)
-            setTextColor(textOnPanel)
+            setHintTextColor(t.hintColor)
+            setTextColor(t.textOnPanel)
             textSize = 14f
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             imeOptions = EditorInfo.IME_ACTION_NONE
             minLines = 2
             maxLines = 4
             background = GradientDrawable().apply {
-                cornerRadius = 8 * dp
+                cornerRadius = 8 * t.dp
                 setColor(0x33FFFFFF)
-                setStroke((1 * dp).toInt(), 0x55FFFFFF)
+                setStroke((1 * t.dp).toInt(), 0x55FFFFFF)
             }
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            setPadding((12 * t.dp).toInt(), (8 * t.dp).toInt(), (12 * t.dp).toInt(), (8 * t.dp).toInt())
         }
         textInput = input
         content.addView(input, marginLp(bottom = 10))
@@ -293,7 +286,7 @@ class TtsTabBuilder(
         }
 
         val genBtn = SetupUiHelpers.makePillButton(
-            context, "Speak", 0xFF4CAF50.toInt(), textOnPanel, dp
+            context, "Speak", 0xFF4CAF50.toInt(), t.textOnPanel, t.dp
         ) {
             val text = textInput?.text?.toString()?.trim()
             if (!text.isNullOrEmpty()) speak(text)
@@ -301,10 +294,10 @@ class TtsTabBuilder(
         generateBtn = genBtn
         btnRow.addView(genBtn, LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-        ).apply { marginEnd = (8 * dp).toInt() })
+        ).apply { marginEnd = (8 * t.dp).toInt() })
 
         val stpBtn = SetupUiHelpers.makePillButton(
-            context, "Stop", Color.TRANSPARENT, textOnPanel, dp
+            context, "Stop", Color.TRANSPARENT, t.textOnPanel, t.dp
         ) { stop() }
         stopBtn = stpBtn
         stpBtn.isEnabled = false
@@ -315,7 +308,7 @@ class TtsTabBuilder(
         content.addView(btnRow, marginLp(bottom = 8))
 
         // Status
-        val status = makeSmallText("Not initialized", dimWhite)
+        val status = makeSmallText("Not initialized", t.dimWhite)
         statusLabel = status
         content.addView(status, marginLp(bottom = 10))
 
@@ -364,14 +357,14 @@ class TtsTabBuilder(
     private fun makeBoldLabel(text: String, size: Float = 14f): TextView {
         return TextView(context).apply {
             this.text = text
-            setTextColor(textOnPanel)
+            setTextColor(t.textOnPanel)
             textSize = size
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, (4 * dp).toInt())
+            setPadding(0, 0, 0, (4 * t.dp).toInt())
         }
     }
 
-    private fun makeSmallText(text: String, color: Int = dimWhite): TextView {
+    private fun makeSmallText(text: String, color: Int = t.dimWhite): TextView {
         return TextView(context).apply {
             this.text = text
             setTextColor(color)
@@ -384,10 +377,10 @@ class TtsTabBuilder(
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                cornerRadius = 8 * dp
+                cornerRadius = 8 * t.dp
                 setColor(0x22FFFFFF)
             }
-            setPadding((10 * dp).toInt(), (8 * dp).toInt(), (10 * dp).toInt(), (8 * dp).toInt())
+            setPadding((10 * t.dp).toInt(), (8 * t.dp).toInt(), (10 * t.dp).toInt(), (8 * t.dp).toInt())
         }
     }
 
@@ -398,14 +391,14 @@ class TtsTabBuilder(
         }
         val labelTv = TextView(context).apply {
             text = label
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 11f
         }
         row.addView(labelTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         val valueTv = TextView(context).apply {
             text = "—"
-            setTextColor(textOnPanel)
+            setTextColor(t.textOnPanel)
             textSize = 11f
             typeface = Typeface.MONOSPACE
             gravity = Gravity.END
@@ -414,7 +407,7 @@ class TtsTabBuilder(
 
         parent.addView(row, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = (2 * dp).toInt() })
+        ).apply { bottomMargin = (2 * t.dp).toInt() })
 
         return valueTv
     }
@@ -432,7 +425,7 @@ class TtsTabBuilder(
         }
         val labelTv = TextView(context).apply {
             text = if (steps <= 10) "$label: ${initial.toInt()}" else "$label: ${String.format("%.2f", initial)}"
-            setTextColor(dimWhite)
+            setTextColor(t.dimWhite)
             textSize = 11f
         }
         row.addView(labelTv)
@@ -461,6 +454,6 @@ class TtsTabBuilder(
         return LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = (bottom * dp).toInt() }
+        ).apply { bottomMargin = (bottom * t.dp).toInt() }
     }
 }
