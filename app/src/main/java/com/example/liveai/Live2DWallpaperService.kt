@@ -55,6 +55,7 @@ class Live2DWallpaperService : WallpaperService() {
         private var surfaceWidth = 0
         private var surfaceHeight = 0
         private var touchHandler: TouchInteractionHandler? = null
+        private val pendingTouchEvents = mutableListOf<MotionEvent>()
 
         // Background texture GL state
         private var bgTextureId = 0
@@ -90,11 +91,21 @@ class Live2DWallpaperService : WallpaperService() {
         private var frameCount = 0L
         private val engineId = System.identityHashCode(this)
 
+        // Frame timing diagnostics (logcat only, zero render cost)
+        private var lastFrameNs = 0L
+        private var frameTimeAccumulatorMs = 0.0
+        private var frameTimeSampleCount = 0
+        private var slowFrameCount = 0
+
         private val drawRunnable = object : Runnable {
             override fun run() {
                 if (visible) {
+                    val startNs = System.nanoTime()
                     drawFrame()
-                    handler.postDelayed(this, 16L)
+                    val drawMs = (System.nanoTime() - startNs) / 1_000_000L
+                    // Subtract draw time so delay targets 16ms total, not 16ms + draw
+                    val delayMs = (16L - drawMs).coerceAtLeast(0L)
+                    handler.postDelayed(this, delayMs)
                 }
             }
         }
@@ -116,7 +127,11 @@ class Live2DWallpaperService : WallpaperService() {
 
         override fun onTouchEvent(event: MotionEvent?) {
             event ?: return
-            touchHandler?.onTouchEvent(event)
+            // Queue a copy — the original is recycled by the system after this returns.
+            // Processing is deferred to drawFrame() so touch floods don't stall the draw loop.
+            synchronized(pendingTouchEvents) {
+                pendingTouchEvents.add(MotionEvent.obtain(event))
+            }
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder?) {
@@ -351,12 +366,35 @@ class Live2DWallpaperService : WallpaperService() {
                 return
             }
 
+            val frameStartNs = System.nanoTime()
+
             frameCount++
             if (frameCount <= 5 || frameCount % 300 == 0L) {
                 Log.d(TAG, "[$engineId] drawFrame #$frameCount modelLoaded=$modelLoaded surface=${surfaceWidth}x${surfaceHeight}")
             }
 
             LAppPal.updateTime()
+
+            // Process queued touch events — coalesce consecutive MOVEs
+            synchronized(pendingTouchEvents) {
+                var i = 0
+                while (i < pendingTouchEvents.size) {
+                    val ev = pendingTouchEvents[i]
+                    if (ev.actionMasked == MotionEvent.ACTION_MOVE) {
+                        // Skip this MOVE if the next event is also a MOVE
+                        if (i + 1 < pendingTouchEvents.size &&
+                            pendingTouchEvents[i + 1].actionMasked == MotionEvent.ACTION_MOVE) {
+                            ev.recycle()
+                            i++
+                            continue
+                        }
+                    }
+                    touchHandler?.onTouchEvent(ev)
+                    ev.recycle()
+                    i++
+                }
+                pendingTouchEvents.clear()
+            }
             touchHandler?.updateSpring()
 
             GLES20.glClearColor(0.12f, 0.12f, 0.12f, 1.0f)
@@ -387,6 +425,26 @@ class Live2DWallpaperService : WallpaperService() {
                         Log.e(TAG, "[$engineId] GL error after render: 0x${Integer.toHexString(glErr)} at frame $frameCount")
                     }
                 }
+            }
+
+            // --- Frame timing diagnostics (logcat only) ---
+            val preSwapNs = System.nanoTime()
+            val drawTimeMs = (preSwapNs - frameStartNs) / 1_000_000.0
+            val wallTimeMs = if (lastFrameNs > 0) (frameStartNs - lastFrameNs) / 1_000_000.0 else 0.0
+            lastFrameNs = frameStartNs
+
+            frameTimeAccumulatorMs += drawTimeMs
+            frameTimeSampleCount++
+            if (drawTimeMs > 18.0) slowFrameCount++
+
+            if (frameTimeSampleCount >= 120) {
+                val avgDrawMs = frameTimeAccumulatorMs / frameTimeSampleCount
+                val fps = if (wallTimeMs > 0) 1000.0 / wallTimeMs else 0.0
+                Log.d(TAG, "[$engineId] PERF: avgDraw=%.1fms slow=%d/%d fps≈%.0f"
+                    .format(avgDrawMs, slowFrameCount, frameTimeSampleCount, fps))
+                frameTimeAccumulatorMs = 0.0
+                frameTimeSampleCount = 0
+                slowFrameCount = 0
             }
 
             if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
