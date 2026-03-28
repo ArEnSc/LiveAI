@@ -44,8 +44,10 @@ class DragController(
     private var springAnimX: SpringAnimation? = null
     private var flingAnimY: FlingAnimation? = null
     private var springAnimY: SpringAnimation? = null
+    private var attachedView: View? = null
 
     fun attachTo(view: View, params: () -> WindowManager.LayoutParams?) {
+        attachedView = view
         view.setOnTouchListener { _, event ->
             val lp = params() ?: return@setOnTouchListener false
 
@@ -211,6 +213,8 @@ class DragController(
     fun destroy() {
         cancelAnimations()
         releaseVelocityTracker()
+        attachedView?.setOnTouchListener(null)
+        attachedView = null
     }
 
     companion object {
