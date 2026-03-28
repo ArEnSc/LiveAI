@@ -155,6 +155,7 @@ class ChatOverlayManager(
     }
 
     private fun hidePanel() {
+        viewModel.stopPlayback()
         panelVisible.value = false
     }
 

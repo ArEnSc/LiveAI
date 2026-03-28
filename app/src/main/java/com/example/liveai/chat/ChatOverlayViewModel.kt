@@ -7,6 +7,7 @@ import com.example.liveai.agent.model.Message
 import com.example.liveai.agent.tts.TtsProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -54,7 +55,8 @@ class ChatOverlayViewModel(
     systemPrompt: String
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val supervisorJob = SupervisorJob()
+    private val scope = CoroutineScope(supervisorJob + Dispatchers.Main)
     private var streamJob: Job? = null
     private val conversationHistory = mutableListOf<Message>(
         Message.System(content = systemPrompt)
@@ -77,7 +79,12 @@ class ChatOverlayViewModel(
         }
     }
 
-    fun onStartListening() = speechManager.startListening()
+    fun onStartListening() {
+        streamJob?.cancel()
+        ttsProvider?.stop()
+        speechManager.startListening()
+    }
+
     fun onStopListening() = speechManager.stopListening()
 
     fun onModeChange(mode: ChatMode) {
@@ -96,7 +103,15 @@ class ChatOverlayViewModel(
         streamJob = scope.launch { streamFromLlm() }
     }
 
-    fun destroy() = scope.cancel()
+    fun stopPlayback() {
+        streamJob?.cancel()
+        ttsProvider?.stop()
+    }
+
+    fun destroy() {
+        ttsProvider?.stop()
+        scope.cancel()
+    }
 
     // --- private helpers ---
 
@@ -131,6 +146,9 @@ class ChatOverlayViewModel(
                 ttsProvider?.speak(fullContent)
                 AgentDebug.log(TAG) { "timing: TTS speak done at +${System.currentTimeMillis() - sendMs}ms" }
             }
+        } catch (e: CancellationException) {
+            _uiState.update { it.copy(isStreaming = false) }
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "LLM generate failed", e)
             replaceLastMessage(
