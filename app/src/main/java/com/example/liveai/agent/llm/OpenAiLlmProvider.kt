@@ -38,12 +38,17 @@ class OpenAiLlmProvider(
         private const val TAG = "OpenAiLlmProvider"
     }
 
-    private val client: OpenAI = OpenAI(
+    private var client: OpenAI? = OpenAI(
         OpenAIConfig(
             token = apiKey,
             host = OpenAIHost(baseUrl = baseUrl)
         )
     )
+
+    override fun release() {
+        client?.close()
+        client = null
+    }
 
     override suspend fun generate(
         messages: List<Message>,
@@ -69,7 +74,8 @@ class OpenAiLlmProvider(
     }
 
     private suspend fun generateBlocking(request: ChatCompletionRequest): LlmResponse {
-        val completion = client.chatCompletion(request)
+        val c = client ?: throw IllegalStateException("LlmProvider has been released")
+        val completion = c.chatCompletion(request)
         val choice = completion.choices.firstOrNull()
         val message = choice?.message
 
@@ -99,9 +105,10 @@ class OpenAiLlmProvider(
         var firstTokenMs = 0L
         var tokenCount = 0
 
+        val c = client ?: throw IllegalStateException("LlmProvider has been released")
         AgentDebug.log(TAG) { "stream: request sent to $model (${request.messages.size} messages)" }
 
-        client.chatCompletions(request).collect { chunk: ChatCompletionChunk ->
+        c.chatCompletions(request).collect { chunk: ChatCompletionChunk ->
             val delta = chunk.choices.firstOrNull()?.delta
 
             // Stream text content

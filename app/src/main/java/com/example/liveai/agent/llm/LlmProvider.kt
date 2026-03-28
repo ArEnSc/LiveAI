@@ -23,4 +23,7 @@ interface LlmProvider {
         tools: List<ToolDefinition> = emptyList(),
         onChunk: ((String) -> Unit)? = null
     ): LlmResponse
+
+    /** Release underlying resources (HTTP clients, connection pools). */
+    fun release() {}
 }

@@ -40,6 +40,7 @@ class AgentProviders(
 
     fun release() {
         ttsProvider.release()
+        llmProvider.release()
     }
 
     companion object {
